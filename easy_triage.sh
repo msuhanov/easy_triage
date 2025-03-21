@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250214'
+TOOL_VERSION='20250321'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -186,6 +186,8 @@ auditctl -s 1>"$OUT_DIR/audit_status.txt" 2>/dev/null
 lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
 [ -b /dev/sda ] && smartctl --all /dev/sda 1>"$OUT_DIR/smartctl-all-sda.txt" 2>/dev/null
 [ -b /dev/sdb ] && smartctl --all /dev/sdb 1>"$OUT_DIR/smartctl-all-sdb.txt" 2>/dev/null
+[ -b /dev/sdc ] && smartctl --all /dev/sdc 1>"$OUT_DIR/smartctl-all-sdc.txt" 2>/dev/null
+[ -b /dev/sdd ] && smartctl --all /dev/sdd 1>"$OUT_DIR/smartctl-all-sdd.txt" 2>/dev/null
 
 cat /proc/kallsyms | gzip -4 1>"$OUT_DIR/kernel_kallsyms.txt.gz"
 
@@ -206,6 +208,7 @@ echo 'Copying important logs...'
 mkdir "$OUT_DIR/logs_audit/" && cp -n -R -t "$OUT_DIR/logs_audit/" /var/log/audit/
 mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron*
 mkdir "$OUT_DIR/logs_apt/" && cp -n -R -t "$OUT_DIR/logs_apt/" /var/log/apt/
+mkdir "$OUT_DIR/logs_atop/" && cp -n -R -t "$OUT_DIR/logs_atop/" /var/log/atop/
 echo ' also, current dmesg -T'
 dmesg -T -P 2>/dev/null 1>"$OUT_DIR/dmesg-T.txt" || dmesg -T 1>"$OUT_DIR/dmesg-T.txt"
 echo ' also, journalctl -a -b all'
@@ -694,8 +697,8 @@ if [ "$do_orphan" = 'orphan' ]; then
         exe_symlink=$(printf '%s\n' "$line" | cut -d '	' -f 1)
         out_base=$(printf '%s\n' "$exe_file" | sed -e 's/\//_/g' -e 's/[[:space:]]/_/g')
 
-        dd if="$exe_symlink" bs=1M count=16 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null
         stat -L "$exe_symlink" 1>"$OUT_DIR/binaries_orphan/$out_base.txt"
+        dd if="$exe_symlink" bs=1M count=16 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null
         echo " copied as file: $exe_symlink"
 
         cat "$maps_file" 1> "$OUT_DIR/binaries_orphan/$out_base.mem_map"
@@ -797,12 +800,27 @@ if [ -n "$best_python" -a "$do_rootkit" = 'rootkit' ]; then
 
   mkdir "$OUT_DIR/binaries_rootkit"
   grep -E '^ cmd=' "$OUT_DIR/scan_pids.txt" | cut -d '=' -f 2- 1>"$OUT_DIR/scan_pids_exes.txt"
+  grep -E '^Hidden PID: ' "$OUT_DIR/scan_pids.txt" | cut -d ' ' -f 3 1>"$OUT_DIR/scan_pids_pids.txt"
+
+  # Now, dump their executables using two methods.
+
+  # Dump by file system path.
   while read -r; do
     fn="$REPLY"
+    [ -z "$fn" ] && continue
+
     fn_out=$(printf '%s\n' "$fn" | sed -e 's/\//_/g' -e 's/[[:space:]]/_/g')
     stat "$fn" 1> "$OUT_DIR/binaries_rootkit/$fn_out.txt"
-    dd if="$fn" bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$fn_out" 2>/dev/null
+    dd if="$fn" bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$fn_out.fs_bin_by_path" 2>/dev/null
   done <"$OUT_DIR/scan_pids_exes.txt"
+
+  # Dump from '/proc/<pid>/exe'.
+  while read -r; do
+    pid="$REPLY"
+    [ -z "$pid" ] && continue
+
+    dd if=/proc/"$pid"/exe bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_pid" 2>/dev/null
+  done <"$OUT_DIR/scan_pids_pids.txt"
 fi
 
 do_qemu=$(echo "$TRIAGE_OPTIONS" | grep -wo 'qemu')
