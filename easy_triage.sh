@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250321'
+TOOL_VERSION='20250401'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -30,7 +30,7 @@ TRIAGE_OPTIONS='swap orphan internet rootkit qemu'
 FREESPACE_THRESHOLD=1048576 # In 1024-byte blocks.
 
 # Regular expression (grep -Ei) to examine command history files:
-HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|php|perl|python|\.py|\.sh|\.sql|tmp|temp|shm|splo|xplo|cve|gcc|chmod|passwd|shadow|useradd|authorized_keys|hosts|[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}|github|pastebin|cdn|(:| )(443|80|22|445|3389)|nmap|scan|dump|flood|ddos|ncat|netcat|gsock|gs.sock|gssock|g.sock|a\.out|HISTFILE|preload|sh_history|whoami|^w$'
+HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|php|perl|python|\.py|\.sh|\.sql|tmp|temp|shm|splo|xplo|cve|gcc|chmod|passwd|shadow|useradd|authorized_keys|hosts|[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}|github|pastebin|cdn|(:| )(443|80|22|445|3389)|nmap|scan|dump|flood|ddos|ncat|netcat|gsock|gs.sock|gssock|g.sock|a\.out|HISTFILE|preload|sh_history|whoami|^w$|\.io'
 
 # Some sanity checks for user-supplied variables and sanitized hostname...
 [ -n "$OUT_DIR" ] || exit 255
@@ -389,7 +389,7 @@ while read -r; do
   # Sometimes there is an extra space character, deal with it!
   fn_sane=$(printf '%s\n' "$fn" | sed -e 's/ //g')
   [ -n "$fn_sane" -a "$fn_sane" != "$fn" ] && cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn_sane"
-  [ -n "$fn_sane" -a "$fn_sane" != "$fn" ] && md5sum "$fn" 1>> "$OUT_DIR/files_copied.md5"
+  [ -n "$fn_sane" -a "$fn_sane" != "$fn" ] && md5sum "$fn_sane" 1>> "$OUT_DIR/files_copied.md5"
 done <"$OUT_DIR/etc_ld_so_preload.txt"
 
 # Use the environment variable...
