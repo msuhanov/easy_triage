@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250401'
+TOOL_VERSION='20250414'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -22,9 +22,10 @@ OUT_FILE='artifact_collection_'"$HOSTNAME_SANE"'.bin'
 # - 'orphan' (dump deleted but running executables, both from the disk and from the memory);
 # - 'internet' (check Internet connectivity, get external IP address through 'icanhazip.com', and get date & time from online server);
 # - 'rootkit' (search for hidden PIDs by scanning the /proc directory, trying to locate PIDs hidden from the readdir()-like calls);
-# - 'qemu' (find a suspicious "headless" QEMU VM, if any, and copy its virtual disk, writing at most 64 MiB of its data).
+# - 'qemu' (find a suspicious "headless" QEMU VM, if any, and copy its virtual disk, writing at most 64 MiB of its data);
+# - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits).
 # (Their order does not matter.)
-TRIAGE_OPTIONS='swap orphan internet rootkit qemu'
+TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc'
 
 # Refuse to run if there is not enough disk space:
 FREESPACE_THRESHOLD=1048576 # In 1024-byte blocks.
@@ -197,7 +198,7 @@ ls -l --full-time /sys/fs/bpf/ 1>"$OUT_DIR/sys_fs_bpf.txt" 2>/dev/null
 which astra-interpreters-lock 1>/dev/null 2>/dev/null
 if [ $? -eq 0 ]; then
   astra-interpreters-lock status 1>"$OUT_DIR/astra_interpreters_obscurity_status.txt" 2>/dev/null
-  astra-interpreters-lock is-enabled 1>>"$OUT_DIR/astra_interpreters_obscurity_enabled.txt" 2>/dev/null
+  astra-interpreters-lock is-enabled 1>"$OUT_DIR/astra_interpreters_obscurity_enabled.txt" 2>/dev/null
   # There are more obscurity-related options, but these two are the most important ones for the "kiosk" mode...
   # If they are off, the "kiosk" mode is not working at all (and, in general, users can execute anything).
 fi
@@ -268,6 +269,14 @@ if [ -d /dev/shm/ ]; then
   mkdir "$OUT_DIR/dev_shm/" && cp -n -R -t "$OUT_DIR/dev_shm/" /dev/shm/ 2>/dev/null
   echo 'Done!'
 fi
+
+echo 'Copying recent crash dumps...'
+mkdir "$OUT_DIR/var_crash/"
+find /var/crash/ -type f -mtime -61 -size -35M -print0 1>>"$OUT_DIR/recent_crash_dumps.txt"
+cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' cp -n -t "$OUT_DIR/var_crash/" '{}'
+cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' md5sum '{}' 1>> "$OUT_DIR/var_crash/files_copied.md5"
+rm -f "$OUT_DIR/recent_crash_dumps.txt"
+echo 'Done!'
 
 echo 'Checking integrity of DEB/RPM packages...'
 rpm -V -a 1>"$OUT_DIR/rpm-Va.txt" 2>/dev/null
@@ -857,6 +866,63 @@ if [ "$do_qemu" = 'qemu' ]; then
     done <"$OUT_DIR/qemu_fds.txt"
     rm -f "$OUT_DIR/qemu_fds.txt"
   fi
+  echo 'Done!'
+fi
+
+# Find overmounted /proc/<pid>/ directories...
+do_omproc=$(echo "$TRIAGE_OPTIONS" | grep -wo 'omproc')
+
+if [ "$do_omproc" = 'omproc' ]; then
+  echo 'Searching for overmounted /proc/<pid>/...'
+
+  # If there are more than 10 of overmounted PIDs, something is wrong with this system.
+  # Never try to deal with more than 10 of such PIDs...
+  cat "$OUT_DIR/mounts.txt" | grep -E '^proc /proc/[[:digit:]]{1,} proc ' | head -n 10 | cut -d ' ' -f 2 | cut -d '/' -f 3 | sort | uniq 1>>"$OUT_DIR/overmounted_pids.txt"
+  if [ -s "$OUT_DIR/overmounted_pids.txt" ]; then
+    mkdir "$OUT_DIR/new_proc/"
+    mkdir "$OUT_DIR/overmounted_pids/"
+
+    mount -t proc none "$OUT_DIR/new_proc/"
+    sleep 1
+
+    while read -r; do
+      pid="$REPLY"
+      [ -z "$pid" ] && continue
+      echo " found PID: $pid"
+
+      echo 'PID info:' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      ls -l --full-time "$OUT_DIR/new_proc/$pid/" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+
+      echo 'PID FDs:' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      ls -l --full-time "$OUT_DIR/new_proc/$pid/fd/" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+
+      echo 'PID TCP:' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      cat "$OUT_DIR/new_proc/$pid/net/tcp" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+
+      echo 'PID TCP6:' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      cat "$OUT_DIR/new_proc/$pid/net/tcp6" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+
+      echo 'PID UDP:' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      cat "$OUT_DIR/new_proc/$pid/net/udp" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+
+      echo 'PID UDP6:' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      cat "$OUT_DIR/new_proc/$pid/net/udp6" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+      echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
+
+      dd if="$OUT_DIR/new_proc/$pid"/exe bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_ompid" 2>/dev/null
+    done <"$OUT_DIR/overmounted_pids.txt"
+
+    sleep 3
+    umount "$OUT_DIR/new_proc/" && rmdir "$OUT_DIR/new_proc/"
+    sleep 4
+    umount "$OUT_DIR/new_proc/" 2>/dev/null && rmdir "$OUT_DIR/new_proc/" 2>/dev/null
+  fi
+
   echo 'Done!'
 fi
 
