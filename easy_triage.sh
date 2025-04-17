@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250414'
+TOOL_VERSION='20250417'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -233,7 +233,7 @@ if [ $? -eq 0 ]; then
   find /run/log/journal/ /run/journal/ /var/log/journal/ -type f -exec strings -n 8 {} \; 2>/dev/null | gzip -4 1> "$OUT_DIR/journalctl_strings.txt.gz"
 else
   echo ' and files from /run/log/journal/, /run/journal/, and /var/log/journal/'
-  tar cvf "$OUT_DIR/journalctl_files.tar" /run/log/journal/ /run/journal/ /var/log/journal/
+  tar cvzf "$OUT_DIR/journalctl_files.tgz" /run/log/journal/ /run/journal/ /var/log/journal/
 fi
 
 mkdir "$OUT_DIR/var_spool_mail/" && cp -n -R -t "$OUT_DIR/var_spool_mail/" /var/spool/mail/ 2>/dev/null
