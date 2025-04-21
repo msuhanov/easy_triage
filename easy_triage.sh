@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250417'
+TOOL_VERSION='20250421'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -174,6 +174,8 @@ cat /proc/mounts 1>"$OUT_DIR/mounts.txt"
 mount 1>"$OUT_DIR/mount.txt"
 swapon -s 1>"$OUT_DIR/swapon-s.txt"
 lsblk 1>"$OUT_DIR/lsblk.txt"
+lsblk -o name,fstype,size -n -r -p -b 1>"$OUT_DIR/lsblk_name_fstype_size.txt"
+cat "$OUT_DIR/lsblk_name_fstype_size.txt" | grep -v '  ' | cut -d ' ' -f 1 | xargs -I '{}' file -s '{}' 1>>"$OUT_DIR/bdev_sigs.txt"
 df -h 1>"$OUT_DIR/df-h.txt"
 
 cat /etc/passwd 1>"$OUT_DIR/passwd.txt"
