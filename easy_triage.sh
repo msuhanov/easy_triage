@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250421'
+TOOL_VERSION='20250422'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -175,7 +175,7 @@ mount 1>"$OUT_DIR/mount.txt"
 swapon -s 1>"$OUT_DIR/swapon-s.txt"
 lsblk 1>"$OUT_DIR/lsblk.txt"
 lsblk -o name,fstype,size -n -r -p -b 1>"$OUT_DIR/lsblk_name_fstype_size.txt"
-cat "$OUT_DIR/lsblk_name_fstype_size.txt" | grep -v '  ' | cut -d ' ' -f 1 | xargs -I '{}' file -s '{}' 1>>"$OUT_DIR/bdev_sigs.txt"
+cat "$OUT_DIR/lsblk_name_fstype_size.txt" | grep -v '  ' | cut -d ' ' -f 1 | xargs -I '{}' file -s -L '{}' 1>>"$OUT_DIR/bdev_sigs.txt"
 df -h 1>"$OUT_DIR/df-h.txt"
 
 cat /etc/passwd 1>"$OUT_DIR/passwd.txt"
@@ -239,6 +239,20 @@ else
 fi
 
 mkdir "$OUT_DIR/var_spool_mail/" && cp -n -R -t "$OUT_DIR/var_spool_mail/" /var/spool/mail/ 2>/dev/null
+
+which docker 1>/dev/null 2>/dev/null
+if [ $? -eq 0 ]; then
+  echo ' also, logs from Docker containers'
+  docker container ps --all | grep -Eiv '^container' | cut -d ' ' -f 1 1> "$OUT_DIR/docker_containers.txt"
+  mkdir "$OUT_DIR/logs_docker/"
+  while read -r; do
+    cn="$REPLY"
+    [ -z "$cn" ] && continue
+    echo "  $cn"
+    docker container logs --timestamps "$cn" | gzip -8 1> "$OUT_DIR/logs_docker/$cn.txt.gz"
+    docker container inspect "$cn" 1> "$OUT_DIR/logs_docker/$cn.insp"
+  done <"$OUT_DIR/docker_containers.txt"
+fi
 echo 'Done!'
 
 echo -n 'Collecting timeline... / '
@@ -276,7 +290,7 @@ echo 'Copying recent crash dumps...'
 mkdir "$OUT_DIR/var_crash/"
 find /var/crash/ -type f -mtime -61 -size -35M -print0 1>>"$OUT_DIR/recent_crash_dumps.txt"
 cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' cp -n -t "$OUT_DIR/var_crash/" '{}'
-cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' md5sum '{}' 1>> "$OUT_DIR/var_crash/files_copied.md5"
+cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' md5sum '{}' 1>> "$OUT_DIR/files_copied.md5"
 rm -f "$OUT_DIR/recent_crash_dumps.txt"
 echo 'Done!'
 
@@ -354,11 +368,11 @@ mkdir "$OUT_DIR/binaries_suspicious"
 if [ -n "$BIN_IS_SYMLINK" ]; then
   find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /var/lib/cont* /var/lib/dock* -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 else
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /lib*/ /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /var/lib/cont* /var/lib/dock* -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 fi
 
 gzip -2 "$OUT_DIR/file_sigs.txt"
@@ -368,11 +382,11 @@ echo 'Scanning for SUID/SGID files...'
 if [ -n "$BIN_IS_SYMLINK" ]; then
   find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
   find /usr/lib*/ -maxdepth 2 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
-  find /var/lib/cont* /var/lib/dock* -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
 else
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
   find /lib*/ /usr/lib*/ -maxdepth 2 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
-  find /var/lib/cont* /var/lib/dock* -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
 fi
 echo 'Done!'
 
@@ -457,7 +471,7 @@ echo 'Done!'
 
 echo 'Scanning for suspicious command history...'
 find /home/*/ /root/ -xdev -maxdepth 2 -name '*hist*' -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
-find /var/lib/cont* /var/lib/dock* -name '*hist*' -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '*hist*' -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
 echo 'Done!'
 
 echo 'Dumping last 50 lines of history recorded for root...'
@@ -469,32 +483,32 @@ echo 'Done!'
 echo 'Scanning for less history...'
 find /home/*/ /root/ -xdev -maxdepth 2 -name '.lesshst' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/less_hst.txt"
 find /home/*/ /root/ -xdev -maxdepth 2 -name 'lesshst' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/less_hst.txt"
-find /var/lib/cont* /var/lib/dock* -name '.lesshst' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/less_hst.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '.lesshst' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/less_hst.txt"
 echo 'Done!'
 
 echo 'Scanning for SSH authorized keys...'
 find /home/*/ /root/ -xdev -maxdepth 3 -path '*/.ssh/authorized_keys*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_auth_keys.txt"
-find /var/lib/cont* /var/lib/dock* -path '*/.ssh/authorized_keys*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_auth_keys.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/.ssh/authorized_keys*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_auth_keys.txt"
 echo 'Done!'
 
 echo 'Scanning for SSH known hosts...'
 find /home/*/ /root/ -xdev -maxdepth 3 -path '*/.ssh/known_hosts*' -type f -exec grep -aH ' ' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_known_hosts.txt"
-find /var/lib/cont* /var/lib/dock* -path '*/.ssh/known_hosts*' -type f -exec grep -aH ' ' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_known_hosts.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/.ssh/known_hosts*' -type f -exec grep -aH ' ' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_known_hosts.txt"
 echo 'Done!'
 
 echo 'Scanning for wget HSTS files...'
 find /home/*/ /root/ -xdev -maxdepth 5 -name '.wget-hsts*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/wget_hsts.txt"
-find /var/lib/cont* /var/lib/dock* -name '.wget-hsts*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/wget_hsts.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '.wget-hsts*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/wget_hsts.txt"
 echo 'Done!'
 
 echo 'Scanning for Remmina configs...'
 find /home/*/ /root/ -xdev -maxdepth 5 \( -name 'remmina.pref' -o -name '*.remmina' \) -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/remmina_configs.txt"
-find /var/lib/cont* /var/lib/dock* \(- name 'remmina.pref' -o -name '*.remmina' \) -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/remmina_configs.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker \(- name 'remmina.pref' -o -name '*.remmina' \) -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/remmina_configs.txt"
 echo 'Done!'
 
 echo 'Scanning for MC history...'
 find /home/*/ /root/ -xdev -maxdepth 5 -path '*/mc/history' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/mc_history.txt"
-find /var/lib/cont* /var/lib/dock* -path '*/mc/history' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/mc_history.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/mc/history' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/mc_history.txt"
 echo 'Done!'
 
 echo 'Running lsof...'
