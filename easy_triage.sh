@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250422'
+TOOL_VERSION='20250428'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -191,6 +191,10 @@ lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
 [ -b /dev/sdb ] && smartctl --all /dev/sdb 1>"$OUT_DIR/smartctl-all-sdb.txt" 2>/dev/null
 [ -b /dev/sdc ] && smartctl --all /dev/sdc 1>"$OUT_DIR/smartctl-all-sdc.txt" 2>/dev/null
 [ -b /dev/sdd ] && smartctl --all /dev/sdd 1>"$OUT_DIR/smartctl-all-sdd.txt" 2>/dev/null
+[ -b /dev/sda ] && hdparm -I /dev/sda 1>"$OUT_DIR/hdparm-i-sda.txt" 2>/dev/null
+[ -b /dev/sdb ] && hdparm -I /dev/sdb 1>"$OUT_DIR/hdparm-i-sdb.txt" 2>/dev/null
+[ -b /dev/sdc ] && hdparm -I /dev/sdc 1>"$OUT_DIR/hdparm-i-sdc.txt" 2>/dev/null
+[ -b /dev/sdd ] && hdparm -I /dev/sdd 1>"$OUT_DIR/hdparm-i-sdd.txt" 2>/dev/null
 
 cat /proc/kallsyms | gzip -4 1>"$OUT_DIR/kernel_kallsyms.txt.gz"
 
@@ -204,6 +208,21 @@ if [ $? -eq 0 ]; then
   # There are more obscurity-related options, but these two are the most important ones for the "kiosk" mode...
   # If they are off, the "kiosk" mode is not working at all (and, in general, users can execute anything).
 fi
+
+mkdir "$OUT_DIR/proc_misc"
+# Some malware is known to derive their body decryption keys from some of these files...
+cat /proc/net/arp 1>"$OUT_DIR/proc_misc/net_arp.txt"
+cat /proc/net/route 1>"$OUT_DIR/proc_misc/net_route.txt"
+cat /proc/cpuinfo 1>"$OUT_DIR/proc_misc/cpuinfo.txt"
+cat /proc/iomem 1>"$OUT_DIR/proc_misc/iomem.txt"
+cat /proc/ioports 1>"$OUT_DIR/proc_misc/ioports.txt"
+cat /proc/meminfo 1>"$OUT_DIR/proc_misc/meminfo.txt"
+cat /proc/cpuinfo 1>"$OUT_DIR/proc_misc/cpuinfo.txt"
+cat /proc/keys 1>"$OUT_DIR/proc_misc/keys.txt"
+cat /proc/key-users 1>"$OUT_DIR/proc_misc/key-users.txt"
+cat /proc/stat 1>"$OUT_DIR/proc_misc/stat.txt"
+cat /proc/devices 1>"$OUT_DIR/proc_misc/devices.txt"
+# '/proc/cmdline' is in '$OUT_DIR/kernel_cmdline.txt'!
 echo 'Done!'
 
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
@@ -360,13 +379,20 @@ echo 'exit 1' 1>> "$OUT_DIR/check_file.sh"
 chmod +x "$OUT_DIR/check_file.sh"
 
 BIN_IS_SYMLINK=''
+USR_SBIN_IS_SYMLINK=''
 [ -h /bin ] && BIN_IS_SYMLINK='y'
+[ -h /usr/sbin ] && USR_SBIN_IS_SYMLINK='y'
 [ -n "$BIN_IS_SYMLINK" ] && echo 'Note: /bin is symlink'
+[ -n "$USR_SBIN_IS_SYMLINK" ] && echo 'Note: /usr/sbin is symlink'
 
 mkdir "$OUT_DIR/binaries_suspicious"
 
 if [ -n "$BIN_IS_SYMLINK" ]; then
-  find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  if [ -n "$USR_SBIN_IS_SYMLINK" ]; then
+    find /usr/bin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  else
+    find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  fi
   find /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 else
@@ -380,7 +406,11 @@ echo 'Done!'
 
 echo 'Scanning for SUID/SGID files...'
 if [ -n "$BIN_IS_SYMLINK" ]; then
-  find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
+  if [ -n "$USR_SBIN_IS_SYMLINK" ]; then
+    find /usr/bin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
+  else
+    find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
+  fi
   find /usr/lib*/ -maxdepth 2 -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
   find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -a \( -perm -u+s -o -perm -g+s \) 2>/dev/null 1>> "$OUT_DIR/file_suid_sgid.txt"
 else
@@ -445,10 +475,18 @@ if [ -n "$BIN_IS_SYMLINK" ]; then
   # Still, some files are referenced through /bin/ and /sbin/, not through /usr/bin/ and /usr/sbin/... Fix this!
   cat "$OUT_DIR/executables_from_packages_draft1.txt" | sed -e 's/^\/usr\//\//g' > "$OUT_DIR/executables_from_packages_draft2.txt"
   cat "$OUT_DIR/executables_from_packages_draft1.txt" | sed -e 's/^\/bin\//\/usr\/bin\//g' -e 's/^\/sbin\//\/usr\/sbin\//g' > "$OUT_DIR/executables_from_packages_draft3.txt"
-  cat "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages_draft2.txt" "$OUT_DIR/executables_from_packages_draft3.txt" | sort -T "$OUT_DIR" | uniq > "$OUT_DIR/executables_from_packages.txt"
-  rm -f "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages_draft2.txt" "$OUT_DIR/executables_from_packages_draft3.txt"
 
-  find /usr/bin/ /usr/sbin/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_present.txt"
+  if [ -n "$USR_SBIN_IS_SYMLINK" ]; then
+    # Same, for the /usr/sbin!
+    cat "$OUT_DIR/executables_from_packages_draft1.txt" | sed -e 's/^\/usr\/sbin/\/usr\/bin/g' > "$OUT_DIR/executables_from_packages_draft4.txt"
+    cat "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages_draft2.txt" "$OUT_DIR/executables_from_packages_draft3.txt" "$OUT_DIR/executables_from_packages_draft4.txt" | sort -T "$OUT_DIR" | uniq > "$OUT_DIR/executables_from_packages.txt"
+    find /usr/bin/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_present.txt"
+  else
+    cat "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages_draft2.txt" "$OUT_DIR/executables_from_packages_draft3.txt" | sort -T "$OUT_DIR" | uniq > "$OUT_DIR/executables_from_packages.txt"
+    find /usr/bin/ /usr/sbin/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_present.txt"
+  fi
+
+  rm -f "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages_draft2.txt" "$OUT_DIR/executables_from_packages_draft3.txt" "$OUT_DIR/executables_from_packages_draft4.txt"
 else
   mv "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages.txt"
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_present.txt"
@@ -638,7 +676,13 @@ echo 'warned_about_offsets = False' 1>>"$OUT_DIR/dump_exe.py"
 echo '' 1>>"$OUT_DIR/dump_exe.py"
 echo 'for mapping in maps:' 1>>"$OUT_DIR/dump_exe.py"
 echo '  if mapping.endswith(" " + exe):' 1>>"$OUT_DIR/dump_exe.py"
-echo '    mem_range, __, file_offset, major_minor, inode = mapping.split(" ")[:5]' 1>>"$OUT_DIR/dump_exe.py"
+echo '    mem_range, perms, file_offset, major_minor, inode = mapping.split(" ")[:5]' 1>>"$OUT_DIR/dump_exe.py"
+echo '' 1>>"$OUT_DIR/dump_exe.py"
+echo '    if not perms.startswith("r"): # Not a readable range, skip it.' 1>>"$OUT_DIR/dump_exe.py"
+echo '      continue' 1>>"$OUT_DIR/dump_exe.py"
+echo '' 1>>"$OUT_DIR/dump_exe.py"
+echo '    if major_minor.startswith("00:") or major_minor.startswith("0:"): # Skip null devices.' 1>>"$OUT_DIR/dump_exe.py"
+echo '      continue' 1>>"$OUT_DIR/dump_exe.py"
 echo '' 1>>"$OUT_DIR/dump_exe.py"
 echo '    if known_major_minor is None:' 1>>"$OUT_DIR/dump_exe.py"
 echo '      known_major_minor = major_minor' 1>>"$OUT_DIR/dump_exe.py"
@@ -969,9 +1013,9 @@ if [ "$do_swap" = 'swap' ]; then
 
   if [ -n "$swap_dev" -a -r "$swap_dev" ]; then
     printf '%s\n' " $swap_dev"
-    # This will never read more than 6 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 700 lines.
+    # This will never read more than 7 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 700 lines.
     # Use direct I/O to reduce the cache usage. If that mode is unavailable, bail out!
-    dd if="$swap_dev" bs=1024 iflag=direct count=6291456 2>/dev/null | $best_strings -n 20 | grep 'Accepted ' | grep ' from ' | head -n 700 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
+    dd if="$swap_dev" bs=1024 iflag=direct count=7340032 2>/dev/null | $best_strings -n 20 | grep 'Accepted ' | grep ' from ' | head -n 700 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
   fi
   echo 'Done!'
 fi
