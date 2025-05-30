@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250428'
+TOOL_VERSION='20250530'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -23,15 +23,19 @@ OUT_FILE='artifact_collection_'"$HOSTNAME_SANE"'.bin'
 # - 'internet' (check Internet connectivity, get external IP address through 'icanhazip.com', and get date & time from online server);
 # - 'rootkit' (search for hidden PIDs by scanning the /proc directory, trying to locate PIDs hidden from the readdir()-like calls);
 # - 'qemu' (find a suspicious "headless" QEMU VM, if any, and copy its virtual disk, writing at most 64 MiB of its data);
-# - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits).
+# - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits);
+# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 10 minutes; the 'strace' package will be installed if needed).
 # (Their order does not matter.)
-TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc'
+TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc strace'
 
 # Refuse to run if there is not enough disk space:
 FREESPACE_THRESHOLD=1048576 # In 1024-byte blocks.
 
 # Regular expression (grep -Ei) to examine command history files:
 HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|php|perl|python|\.py|\.sh|\.sql|tmp|temp|shm|splo|xplo|cve|gcc|chmod|passwd|shadow|useradd|authorized_keys|hosts|[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}|github|pastebin|cdn|(:| )(443|80|22|445|3389)|nmap|scan|dump|flood|ddos|ncat|netcat|gsock|gs.sock|gssock|g.sock|a\.out|HISTFILE|preload|sh_history|whoami|^w$|\.io'
+
+# Syscall filters (strace -e):
+STRACE_FILTER='connect,bind,listen,accept,getpeername'
 
 # Some sanity checks for user-supplied variables and sanitized hostname...
 [ -n "$OUT_DIR" ] || exit 255
@@ -144,8 +148,10 @@ printf '%s\n' "$pwd" 1>"$OUT_DIR/pwd.txt"
 
 whoami 1>"$OUT_DIR/whoami.txt"
 hostname 1>"$OUT_DIR/hostname.txt"
+hostnamectl 1>"$OUT_DIR/hostnamectl.txt"
 uname -a 1>"$OUT_DIR/uname-a.txt"
 cat /etc/os-release 1>"$OUT_DIR/os-release.txt"
+cat /etc/machine-id 1>"$OUT_DIR/machine-id.txt"
 
 lsmod 1>"$OUT_DIR/kernel_modules_1.txt"
 cat /proc/modules 1>"$OUT_DIR/kernel_modules_2.txt"
@@ -228,7 +234,7 @@ echo 'Done!'
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
 echo 'Copying important logs...'
 mkdir "$OUT_DIR/logs_audit/" && cp -n -R -t "$OUT_DIR/logs_audit/" /var/log/audit/
-mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron*
+mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron* /var/log/dmesg*
 mkdir "$OUT_DIR/logs_apt/" && cp -n -R -t "$OUT_DIR/logs_apt/" /var/log/apt/
 mkdir "$OUT_DIR/logs_atop/" && cp -n -R -t "$OUT_DIR/logs_atop/" /var/log/atop/
 echo ' also, current dmesg -T'
@@ -983,6 +989,85 @@ if [ "$do_omproc" = 'omproc' ]; then
     umount "$OUT_DIR/new_proc/" 2>/dev/null && rmdir "$OUT_DIR/new_proc/" 2>/dev/null
   fi
 
+  echo 'Done!'
+fi
+
+# Trace network activity of suspicious processes...
+do_strace=$(echo "$TRIAGE_OPTIONS" | grep -wo 'strace')
+
+# Check that we have the 'timeout' program...
+if [ "$do_strace" = 'strace' ]; then
+  which timeout 1>/dev/null 2>/dev/null
+  if [ $? -ne 0 ]; then
+    echo 'timeout not found! Skipping the strace... :-('
+    do_strace=''
+  fi
+fi
+
+# Check that we are running as root...
+if [ "$do_strace" = 'strace' ]; then
+  if [ $EUID -ne 0 ]; then
+    echo 'Not running as root! Skipping the strace...'
+    do_strace=''
+  fi
+fi
+
+# Check that we have the 'strace' program.
+# If not, try to install it...
+if [ "$do_strace" = 'strace' ]; then
+  which strace 1>/dev/null 2>/dev/null
+  if [ $? -ne 0 ]; then
+    # No 'strace', let's try to install it...
+
+    echo 'Trying to install strace, through apt-get...'
+    apt-get -y install strace
+    which strace 1>/dev/null 2>/dev/null
+
+    if [ $? -ne 0 ]; then
+      echo 'Trying to install strace, through dnf...'
+      dnf -y install strace
+      which strace 1>/dev/null 2>/dev/null
+
+      if [ $? -ne 0 ]; then
+        echo 'Trying to install strace, through yum...'
+        yum -y install strace
+        which strace 1>/dev/null 2>/dev/null
+
+        if [ $? -ne 0 ]; then
+          echo 'strace not found and cannot be installed! Skipping the strace... :-('
+          do_strace=''
+        fi
+      fi
+    fi
+  fi
+fi
+
+# Do the trace!
+if [ "$do_strace" = 'strace' ]; then
+  # Locate suspicious processes...
+
+  # 'sshd' that (probably) failed the hash check, 1 process.
+  if [ -s "$OUT_DIR/binaries_failed/sshd" ]; then
+    pids1=$(ps -e -o pid,comm -w -w | grep -E ' sshd$' | head -n 1 | awk '{ print $1 }')
+  fi
+
+  # 'python' that runs without arguments, 2 processes.
+  pids2=$(ps -e -o pid,cmd -w -w | grep -E '( |/)python(|2|3)$' | tail -n 2 | awk '{ print $1 }')
+  if [ -z "$pids2" ]; then
+    # Or 'python -i', or 'python -u', 'python -q'... 1 process.
+    pids2=$(ps -e -o pid,cmd -w -w | grep -E '( |/)python(|2|3)[[:space:]]{1,5}(-i|-u|-q)[[:space:]]{0,5}$' | head -n 1 | awk '{ print $1 }')
+  fi
+
+  # And some running programs that (probably) are not from packages. 2 processes.
+  # Stick to "simple" names (containing only alphanumeric characters and any of these: '_', '.', '-').
+  # Also, exclude ambiguous names ('COMMAND') and, hopefully, VMware processes (start with 'vm') and QEMU processes ('qemu').
+  pids3=$(find "$OUT_DIR/binaries_not_from_packages/" -type f -printf '%f\n' | grep -E '^([[:alnum:]]|[_\.-]){4,}$' | grep -Ev '(^COMMAND$|^vm|^qemu)' | sed -e 's/\./\\./g' | xargs -I '{}' bash -c "ps -e -o pid,comm -w -w | grep -E ' {}$'" | head -n 2 | awk '{ print $1 }' | tr '\n' ',')
+
+  pids=$(echo "$pids1,$pids2,$pids3" | sed -e 's/,,/,/g' -e 's/^,//g' -e 's/,$//g')
+
+  # And do it!
+  echo "Running strace for PIDs: $pids (limit is 3 mins)..."
+  timeout --kill-after=40s --signal=SIGINT 180s strace --string-limit=64 --absolute-timestamps -e "$STRACE_FILTER" --attach="$pids" 2>&1 | gzip -2 1>> "$OUT_DIR/straces.txt.gz"
   echo 'Done!'
 fi
 
