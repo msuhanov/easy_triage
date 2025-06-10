@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250530'
+TOOL_VERSION='20250610'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -24,7 +24,7 @@ OUT_FILE='artifact_collection_'"$HOSTNAME_SANE"'.bin'
 # - 'rootkit' (search for hidden PIDs by scanning the /proc directory, trying to locate PIDs hidden from the readdir()-like calls);
 # - 'qemu' (find a suspicious "headless" QEMU VM, if any, and copy its virtual disk, writing at most 64 MiB of its data);
 # - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits);
-# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 10 minutes; the 'strace' package will be installed if needed).
+# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 3-4 minutes; the 'strace' package will be installed if needed).
 # (Their order does not matter.)
 TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc strace'
 
@@ -81,6 +81,7 @@ if [ -r "$OUT_DIR/check_file.sh" -o -r "$OUT_DIR/w.txt" -o -r "$OUT_DIR/ss-anp.t
   echo 'Done! Now, remove output directory...'
   rm -fr "$OUT_DIR" # Dangerous.
   echo 'Done!'
+  echo ''
 else
   temp_file=''
 fi
@@ -93,6 +94,9 @@ fi
 
 [ -n "$temp_file" -a -r "$temp_file" ] && cat "$temp_file" | gzip -4 1>"$OUT_DIR/timeline_old.csv.gz"
 [ -n "$temp_file" -a -r "$temp_file" ] && rm -f "$temp_file" && echo 'Saved the old timeline!'
+
+echo '(You can ignore any "command not found" message below.)'
+echo ''
 
 echo 'Collecting network info...'
 ss -anp 1>"$OUT_DIR/ss-anp.txt"
@@ -156,6 +160,8 @@ cat /etc/machine-id 1>"$OUT_DIR/machine-id.txt"
 lsmod 1>"$OUT_DIR/kernel_modules_1.txt"
 cat /proc/modules 1>"$OUT_DIR/kernel_modules_2.txt"
 cat /sys/kernel/security/lockdown 1>"$OUT_DIR/kernel_lockdown_status.txt"
+cat /sys/kernel/debug/tracing/tracing_on 1>"$OUT_DIR/kernel_tracing_status.txt"
+cat /sys/kernel/debug/tracing/trace | tail -n 8000 | gzip -7 1>"$OUT_DIR/kernel_tracing_trace_first8000lines.txt.gz"
 
 cat /proc/sys/kernel/tainted 1>"$OUT_DIR/kernel_tainted_code.txt"
 tainted_code=$(cat "$OUT_DIR/kernel_tainted_code.txt")
@@ -346,6 +352,7 @@ mkdir "$OUT_DIR/systemd_etc_systemd_system/" && cp -n -R -t "$OUT_DIR/systemd_et
 mkdir "$OUT_DIR/systemd_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_lib_systemd_user/" /lib/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/systemd_usr_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_usr_lib_systemd_user/" /usr/lib/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/systemd_etc_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_etc_systemd_user/" /etc/systemd/user/ 2>/dev/null
+mkdir "$OUT_DIR/xdg_etc_autostart/" && cp -n -R -t "$OUT_DIR/xdg_etc_autostart/" /etc/xdg/autostart/ 2>/dev/null
 echo 'Done!'
 
 echo 'Copying binaries that failed hash check...'
@@ -553,6 +560,18 @@ echo 'Done!'
 echo 'Scanning for MC history...'
 find /home/*/ /root/ -xdev -maxdepth 5 -path '*/mc/history' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/mc_history.txt"
 find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/mc/history' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/mc_history.txt"
+echo 'Done!'
+
+echo 'Scanning for vim info...'
+find /home/*/ /root/ -xdev -maxdepth 5 -name '.viminfo' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/vim_viminfo.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '.viminfo' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/vim_viminfo.txt"
+find /home/*/ /root/ -xdev -maxdepth 5 -path '*/.vim/.netrwhist' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/vim_netrwhist.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/.vim/.netrwhist' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/vim_netrwhist.txt"
+echo 'Done!'
+
+echo 'Scanning for XDG autostart files...'
+find /home/*/ /root/ -xdev -maxdepth 5 -path '*/.config/autostart/*.desktop' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/xdg_autostart.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/.config/autostart/*.desktop' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/xdg_autostart.txt"
 echo 'Done!'
 
 echo 'Running lsof...'
