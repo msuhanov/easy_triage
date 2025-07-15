@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250610'
+TOOL_VERSION='20250715'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -235,6 +235,15 @@ cat /proc/key-users 1>"$OUT_DIR/proc_misc/key-users.txt"
 cat /proc/stat 1>"$OUT_DIR/proc_misc/stat.txt"
 cat /proc/devices 1>"$OUT_DIR/proc_misc/devices.txt"
 # '/proc/cmdline' is in '$OUT_DIR/kernel_cmdline.txt'!
+
+# Also, obtain similar (hardware-related) data...
+mkdir "$OUT_DIR/sys_dmi"
+for i in $(echo /sys/devices/virtual/dmi/id/*); do
+  [ -f $i ] || continue
+  j=$(basename $i)
+  cat $i 1>"$OUT_DIR/sys_dmi/$j.txt"
+done
+
 echo 'Done!'
 
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
