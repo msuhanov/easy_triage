@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250715'
+TOOL_VERSION='20250731'
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -36,6 +36,19 @@ HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|p
 
 # Syscall filters (strace -e):
 STRACE_FILTER='connect,bind,listen,accept,getpeername'
+
+# Common locations for PAM modules across distributions
+PAM_LOCATIONS=(
+    "/lib/security/"
+    "/lib64/security/"
+    "/usr/lib/security/"
+    "/usr/lib64/security/"
+    "/lib/x86_64-linux-gnu/security/"
+    "/lib/i386-linux-gnu/security/"
+    "/usr/lib/x86_64-linux-gnu/security/"
+    "/usr/local/lib/security/"
+    "/usr/local/lib64/security/"
+)
 
 # Some sanity checks for user-supplied variables and sanitized hostname...
 [ -n "$OUT_DIR" ] || exit 255
@@ -362,7 +375,29 @@ mkdir "$OUT_DIR/systemd_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_lib_
 mkdir "$OUT_DIR/systemd_usr_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_usr_lib_systemd_user/" /usr/lib/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/systemd_etc_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_etc_systemd_user/" /etc/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/xdg_etc_autostart/" && cp -n -R -t "$OUT_DIR/xdg_etc_autostart/" /etc/xdg/autostart/ 2>/dev/null
+
+mkdir "$OUT_DIR/pam/" && cp -n -R -t "$OUT_DIR/pam.d/" /etc/pam.d/ 2>/dev/null
 echo 'Done!'
+
+echo 'Collecting information about pam modules'
+
+PAM_FILE="$OUT_DIR/pam/pam_modules_info.csv"
+
+# Header for CSV
+echo "Path,Last_Modification,Last_Status_Change,Created,File_Size,MD5Sum" > "$PAM_FILE"
+
+# Find all PAM modules and collect info
+for location in "${PAM_LOCATIONS[@]}"; do
+    if [ -d "$location" ]; then
+        find "$location" -name "*.so" -type f 2>/dev/null | while read -r file; do
+            stats=$(stat "$file" --printf='%n,%y,%z,%w,%s')
+            md5=$(md5sum "$file" | cut -d' ' -f1)
+            echo "$stats,$md5" >> "$PAM_FILE"
+        done
+    fi
+done
+
+echo "Done!"
 
 echo 'Copying binaries that failed hash check...'
 mkdir "$OUT_DIR/binaries_failed"
