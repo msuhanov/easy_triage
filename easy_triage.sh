@@ -3,7 +3,12 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250715'
+TOOL_VERSION='20250812'
+
+if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
+  echo 'Not running under Bash :-('
+  exit 1
+fi
 
 # Build a "sane" hostname string:
 which strings 1>/dev/null 2>/dev/null
@@ -37,6 +42,19 @@ HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|p
 # Syscall filters (strace -e):
 STRACE_FILTER='connect,bind,listen,accept,getpeername'
 
+# Common locations for PAM modules across distributions:
+PAM_LOCATIONS=(
+    "/lib/security/"
+    "/lib64/security/"
+    "/usr/lib/security/"
+    "/usr/lib64/security/"
+    "/lib/x86_64-linux-gnu/security/"
+    "/lib/i386-linux-gnu/security/"
+    "/usr/lib/x86_64-linux-gnu/security/"
+    "/usr/local/lib/security/"
+    "/usr/local/lib64/security/"
+)
+
 # Some sanity checks for user-supplied variables and sanitized hostname...
 [ -n "$OUT_DIR" ] || exit 255
 [ -n "$OUT_FILE" ] || exit 255
@@ -50,11 +68,6 @@ echo " hostname: $HOSTNAME_SANE"
 pwd=$(pwd)
 echo " pwd: $pwd"
 echo ''
-
-if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
-  echo 'Not running under Bash :-('
-  exit 1
-fi
 
 free_blocks=$(df -k -P . | tail -n 1 | awk '{ print $4 }' 2>/dev/null)
 if [ -n "$free_blocks" ]; then
@@ -119,6 +132,7 @@ if [ ! -s "$OUT_DIR/resolvectl-show-cache.txt" ]; then
   pkill -USR1 systemd-resolve # Not a typo (correct: "systemd-resolved"), there is a 15-characters limit for process name patterns...
 fi
 
+resolvectl status 2>/dev/null 1>"$OUT_DIR/resolvectl-status.txt"
 cat /etc/resolv.conf 1>"$OUT_DIR/etc_resolv_conf.txt"
 echo 'Done!'
 
@@ -174,13 +188,34 @@ fi
 
 [ -r /sys/kernel/security/tpm0/binary_bios_measurements ] && cp /sys/kernel/security/tpm0/binary_bios_measurements "$OUT_DIR/tpm0_binary_bios_measurements"
 
+if [ -d /sys/firmware/efi/efivars ]; then
+  ls -l /sys/firmware/efi/efivars/ 1>"$OUT_DIR/ls_efivars.txt"
+
+  # Dump EFI variables used by shim...
+  for fn in $(ls /sys/firmware/efi/efivars/*-605dab50-e046-4300-abb6-3dd810dd8b23); do
+    echo "$fn:" 1>>"$OUT_DIR/efivars_shim.txt"
+    hexdump -C "$fn" 1>>"$OUT_DIR/efivars_shim.txt" || xxd "$fn" 1>>"$OUT_DIR/efivars_shim.txt"
+    echo '---' 1>>"$OUT_DIR/efivars_shim.txt"
+  done
+fi
+
 lastlog 1>"$OUT_DIR/lastlog.txt"
+lastlog2 1>"$OUT_DIR/lastlog2.txt"
 
 # On domain-joined systems, the 'lastlog' file can be really large (but sparse)...
 mkdir "$OUT_DIR/lastlog/" && cp --sparse=always -t "$OUT_DIR/lastlog/" /var/log/lastlog*
 
 last -Fi 1>"$OUT_DIR/last-Fi.txt"
 lastb -Fi 1>"$OUT_DIR/lastb-Fi.txt"
+
+lslogins 1>"$OUT_DIR/lslogins.txt"
+lslogins -f 1>"$OUT_DIR/lslogins-f.txt"
+lslogins -L 1>"$OUT_DIR/lslogins-L.txt"
+lslogins -a 1>"$OUT_DIR/lslogins-a.txt"
+lslogins --output-all --notruncate --raw 1>"$OUT_DIR/lslogins-output-all.txt"
+
+wtmpdb last 1>"$OUT_DIR/wtmpdb_last.txt"
+wtmpdb last -Fi 1>"$OUT_DIR/wtmpdb_last-Fi.txt"
 
 cat /proc/mounts 1>"$OUT_DIR/mounts.txt"
 mount 1>"$OUT_DIR/mount.txt"
@@ -249,21 +284,28 @@ echo 'Done!'
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
 echo 'Copying important logs...'
 mkdir "$OUT_DIR/logs_audit/" && cp -n -R -t "$OUT_DIR/logs_audit/" /var/log/audit/
-mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron* /var/log/dmesg*
+mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp /var/log/wtmp.* /var/log/wtmp-* /var/log/wtmp_* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron* /var/log/dmesg* /var/log/sudo.log*
 mkdir "$OUT_DIR/logs_apt/" && cp -n -R -t "$OUT_DIR/logs_apt/" /var/log/apt/
 mkdir "$OUT_DIR/logs_atop/" && cp -n -R -t "$OUT_DIR/logs_atop/" /var/log/atop/
+mkdir "$OUT_DIR/logs_sudo/" && cp -n -R -t "$OUT_DIR/logs_sudo/" /var/log/sudo-io/
+mkdir "$OUT_DIR/logs_wtmpdb/" && cp -n -R -t "$OUT_DIR/logs_wtmpdb/" /var/lib/wtmpdb/
+mkdir "$OUT_DIR/logs_lastlog2/" && cp -n -R -t "$OUT_DIR/logs_lastlog2/" /var/lib/lastlog/
 echo ' also, current dmesg -T'
 dmesg -T -P 2>/dev/null 1>"$OUT_DIR/dmesg-T.txt" || dmesg -T 1>"$OUT_DIR/dmesg-T.txt"
 echo ' also, journalctl -a -b all'
 journalctl -a -b all -o short-iso-precise --no-pager | gzip -6 1>"$OUT_DIR/journalctl_all.txt.gz"
-echo ' also, journalctl -a (for older systems)'
-journalctl -a --no-pager | gzip -4 1>"$OUT_DIR/journalctl_current_boot.txt.gz"
-echo ' also, journalctl -a -b -1 (for older systems)'
-journalctl -a -b -1 --no-pager | gzip -4 1>"$OUT_DIR/journalctl_minusone_boot.txt.gz"
-echo ' also, journalctl -a -b -2 (for older systems)'
-journalctl -a -b -2 --no-pager | gzip -4 1>"$OUT_DIR/journalctl_minustwo_boot.txt.gz"
-echo ' also, journalctl -a -b -3 (for older systems)'
-journalctl -a -b -3 --no-pager | gzip -4 1>"$OUT_DIR/journalctl_minusthree_boot.txt.gz"
+
+journal_cnt=$(journalctl -a -b all -o short-iso-precise --no-pager 2>/dev/null | head -n 4 | wc -l)
+if [ $journal_cnt -ne 4 ]; then # Skip these, if '-b all' is supported on the machine
+  echo ' also, journalctl -a (for older systems)'
+  journalctl -a --no-pager | gzip -4 1>"$OUT_DIR/journalctl_current_boot.txt.gz"
+  echo ' also, journalctl -a -b -1 (for older systems)'
+  journalctl -a -b -1 --no-pager | gzip -4 1>"$OUT_DIR/journalctl_minusone_boot.txt.gz"
+  echo ' also, journalctl -a -b -2 (for older systems)'
+  journalctl -a -b -2 --no-pager | gzip -4 1>"$OUT_DIR/journalctl_minustwo_boot.txt.gz"
+  echo ' also, journalctl -a -b -3 (for older systems)'
+  journalctl -a -b -3 --no-pager | gzip -4 1>"$OUT_DIR/journalctl_minusthree_boot.txt.gz"
+fi
 
 cp /var/run/utmp "$OUT_DIR/utmp"
 
@@ -300,7 +342,7 @@ echo -n 'Collecting timeline... / '
 echo 'inode,Hard Links,Path,Last Access,Last Modification,Last Status Change,Created,User,Group,Permissions,File Size (bytes)' 1>"$OUT_DIR/timeline.csv"
 find / -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,%U,%G,%A,%s\n' 2>/dev/null 1>> "$OUT_DIR/timeline.csv"
 
-for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run; do
+for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64; do
   findmnt --mountpoint "$dir" 1>/dev/null 2>/dev/null || continue
   echo -n "$dir "
   find "$dir" -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,%U,%G,%A,%s\n' 2>/dev/null 1>> "$OUT_DIR/timeline.csv"
@@ -344,11 +386,13 @@ echo 'Collecting possible persistence info...'
 atq 1>"$OUT_DIR/atq.txt" 2>/dev/null
 crontab -l 1>"$OUT_DIR/crontab-l.txt" 2>/dev/null
 cat /etc/rc.local 1>"$OUT_DIR/etc_rc_local.txt" 2>/dev/null
+ls -la /etc/init.d/ /etc/rc*.d/ 1>"$OUT_DIR/etc_rc_scripts.txt" 2>/dev/null
 cat /etc/ld.so.preload 1>"$OUT_DIR/etc_ld_so_preload.txt" 2>/dev/null
 cat /proc/self/environ 1>"$OUT_DIR/environ.bin" 2>/dev/null
 cat /etc/profile 1>"$OUT_DIR/etc_profile.txt" 2>/dev/null
 cat /etc/bash.bashrc 1>"$OUT_DIR/etc_bash_bashrc.txt" 2>/dev/null
 cat /root/.bashrc 1>"$OUT_DIR/root_bashrc.txt" 2>/dev/null
+cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 
 mkdir "$OUT_DIR/var_spool_cron/" && cp -n -R -t "$OUT_DIR/var_spool_cron/" /var/spool/cron/ 2>/dev/null
@@ -362,6 +406,16 @@ mkdir "$OUT_DIR/systemd_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_lib_
 mkdir "$OUT_DIR/systemd_usr_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_usr_lib_systemd_user/" /usr/lib/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/systemd_etc_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_etc_systemd_user/" /etc/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/xdg_etc_autostart/" && cp -n -R -t "$OUT_DIR/xdg_etc_autostart/" /etc/xdg/autostart/ 2>/dev/null
+
+mkdir "$OUT_DIR/pamd_etc/" && cp -n -R -t "$OUT_DIR/pamd_etc/" /etc/pam.d/ 2>/dev/null
+
+# Find all PAM modules and collect their hashes (timestamps were collected separately):
+for location in "${PAM_LOCATIONS[@]}"; do
+  if [ -d "$location" ]; then
+    find "$location" -name "*.so" -type f -print0 2>/dev/null | xargs -I '{}' -0 md5sum '{}' 1>>"$OUT_DIR/pam_modules_hashes.txt"
+  fi
+done
+
 echo 'Done!'
 
 echo 'Copying binaries that failed hash check...'
@@ -484,10 +538,12 @@ echo 'Done!'
 
 echo 'Collecting list of installed executables (DEB)...'
 find /var/lib/dpkg/info -maxdepth 1 -type f -name '*.list' | xargs -I '{}' cat '{}' | grep -Ea '^/(usr/bin|usr/sbin|bin|sbin)/' | sort -T "$OUT_DIR" | uniq 1>> "$OUT_DIR/executables_deb.txt"
+find /var/lib/dpkg/info -maxdepth 1 -type f -name '*.list' | xargs -I '{}' cat '{}' | grep -Ea '^(/usr|)/lib/systemd/' | sort -T "$OUT_DIR" | uniq 1>> "$OUT_DIR/executables_systemd_deb.txt"
 echo 'Done!'
 
 echo 'Collecting list of installed executables (RPM)...'
 rpm -qal | grep -Ea '^/(usr/bin|usr/sbin|bin|sbin)/' | sort -T "$OUT_DIR" | uniq 1>> "$OUT_DIR/executables_rpm.txt"
+rpm -qal | grep -Ea '^(/usr|)/lib/systemd/' | sort -T "$OUT_DIR" | uniq 1>> "$OUT_DIR/executables_systemd_rpm.txt"
 echo 'Done!'
 
 echo 'Searching for executables not from packages...'
@@ -527,6 +583,36 @@ while read -r; do
   md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
 done <"$OUT_DIR/executables_not_from_packages_limit.txt"
 rm -f "$OUT_DIR/executables_not_from_packages_limit.txt"
+echo 'Done!'
+
+echo 'Searching for fake systemd executables...'
+cat "$OUT_DIR/executables_systemd_deb.txt" "$OUT_DIR/executables_systemd_rpm.txt" | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_systemd_deb_rpm.txt"
+
+if [ -n "$BIN_IS_SYMLINK" ]; then
+  # Still, some files are referenced through /lib/... Fix this!
+  cat "$OUT_DIR/executables_systemd_deb_rpm.txt" | sed -e 's/^\/usr\//\//g' > "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt"
+  cat "$OUT_DIR/executables_systemd_deb_rpm.txt" "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt" | sort -T "$OUT_DIR" > "$OUT_DIR/executables_systemd_deb_rpm__.txt"
+  mv "$OUT_DIR/executables_systemd_deb_rpm__.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt"
+  rm -f "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt"
+  find /usr/lib/systemd/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_systemd_present.txt"
+else
+  find /usr/lib/systemd/ /lib/systemd/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_systemd_present.txt" # Common locations!
+fi
+comm -2 -3 "$OUT_DIR/executables_systemd_present.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt" 1>> "$OUT_DIR/executables_fake_systemd.txt"
+find /var/lib/systemd/ -maxdepth 2 -type f -executable 1>> "$OUT_DIR/executables_fake_systemd.txt" # Another common location...
+cat "$OUT_DIR/executables_fake_systemd.txt" | head -n 25 1>> "$OUT_DIR/executables_fake_systemd_limit.txt" # Limit the number of files to copy, just in case...
+rm -f "$OUT_DIR/executables_systemd_present.txt" "$OUT_DIR/executables_fake_systemd.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt"
+echo 'Done!'
+
+echo 'Copying fake systemd executables...'
+mkdir "$OUT_DIR/binaries_fake_systemd/"
+while read -r; do
+  fn="$REPLY"
+  [ -z "$fn" ] && continue
+  cp --backup=numbered -t "$OUT_DIR/binaries_fake_systemd/" "$fn"
+  md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
+done <"$OUT_DIR/executables_fake_systemd_limit.txt"
+rm -f "$OUT_DIR/executables_fake_systemd_limit.txt"
 echo 'Done!'
 
 echo 'Scanning for suspicious command history...'
@@ -800,6 +886,10 @@ if [ "$do_orphan" = 'orphan' ]; then
         exe_symlink=$(printf '%s\n' "$line" | cut -d '	' -f 1)
         out_base=$(printf '%s\n' "$exe_file" | sed -e 's/\//_/g' -e 's/[[:space:]]/_/g')
 
+        # Do not overwrite an existing file, but (also) do not write more than two instances (copies) of the file.
+        # At most 2 files sharing the same path will be stored.
+        [ -e "$OUT_DIR/binaries_orphan/$out_base.txt" ] && out_base=$(printf '%s_another\n' "$out_base")
+
         stat -L "$exe_symlink" 1>"$OUT_DIR/binaries_orphan/$out_base.txt"
         dd if="$exe_symlink" bs=1M count=16 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null
         echo " copied as file: $exe_symlink"
@@ -1008,6 +1098,7 @@ if [ "$do_omproc" = 'omproc' ]; then
       cat "$OUT_DIR/new_proc/$pid/net/udp6" 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
       echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
 
+      mkdir "$OUT_DIR/binaries_rootkit" 2>/dev/null
       dd if="$OUT_DIR/new_proc/$pid"/exe bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_ompid" 2>/dev/null
     done <"$OUT_DIR/overmounted_pids.txt"
 
@@ -1094,9 +1185,11 @@ if [ "$do_strace" = 'strace' ]; then
   pids=$(echo "$pids1,$pids2,$pids3" | sed -e 's/,,/,/g' -e 's/^,//g' -e 's/,$//g')
 
   # And do it!
-  echo "Running strace for PIDs: $pids (limit is 3 mins)..."
-  timeout --kill-after=40s --signal=SIGINT 180s strace --string-limit=64 --absolute-timestamps -e "$STRACE_FILTER" --attach="$pids" 2>&1 | gzip -2 1>> "$OUT_DIR/straces.txt.gz"
-  echo 'Done!'
+  if [ -n "$pids" ]; then
+    echo "Running strace for PIDs: $pids (limit is 3 mins)..."
+    timeout --kill-after=40s --signal=SIGINT 180s strace --string-limit=64 --absolute-timestamps -e "$STRACE_FILTER" --attach="$pids" 2>&1 | gzip -2 1>> "$OUT_DIR/straces.txt.gz"
+    echo 'Done!'
+  fi
 fi
 
 # This should be the last action performed (it can create some memory pressure)...
