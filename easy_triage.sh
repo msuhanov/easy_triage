@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250812'
+TOOL_VERSION='20250813'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -134,6 +134,7 @@ fi
 
 resolvectl status 2>/dev/null 1>"$OUT_DIR/resolvectl-status.txt"
 cat /etc/resolv.conf 1>"$OUT_DIR/etc_resolv_conf.txt"
+cat /etc/hosts 1>"$OUT_DIR/etc_hosts.txt"
 echo 'Done!'
 
 echo 'Collecting process info...'
@@ -242,6 +243,9 @@ lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
 [ -b /dev/sdb ] && hdparm -I /dev/sdb 1>"$OUT_DIR/hdparm-i-sdb.txt" 2>/dev/null
 [ -b /dev/sdc ] && hdparm -I /dev/sdc 1>"$OUT_DIR/hdparm-i-sdc.txt" 2>/dev/null
 [ -b /dev/sdd ] && hdparm -I /dev/sdd 1>"$OUT_DIR/hdparm-i-sdd.txt" 2>/dev/null
+
+systemd-ac-power -v 1>"$OUT_DIR/systemd-ac-power.txt" 2>/dev/null
+systemd-detect-virt 1>"$OUT_DIR/systemd-detect-virt.txt" 2>/dev/null
 
 cat /proc/kallsyms | gzip -4 1>"$OUT_DIR/kernel_kallsyms.txt.gz"
 
@@ -420,7 +424,7 @@ echo 'Done!'
 
 echo 'Copying binaries that failed hash check...'
 mkdir "$OUT_DIR/binaries_failed"
-cat "$OUT_DIR/rpm-Va.txt" "$OUT_DIR/dpkg-V.txt" | grep -E '^..5' | grep -Eo '/(usr|bin|sbin|lib|opt).+' | grep -Eiv '\.(conf|json|txt|htm|md)' | xargs -I '{}' cp -n -t "$OUT_DIR/binaries_failed/" '{}'
+cat "$OUT_DIR/rpm-Va.txt" "$OUT_DIR/dpkg-V.txt" | grep -E '^..5' | grep -Eo '/(usr|bin|sbin|lib|opt).+' | grep -Eiv '\.(conf|json|txt|htm|md)' | xargs -I '{}' cp --backup=numbered -t "$OUT_DIR/binaries_failed/" '{}'
 cat "$OUT_DIR/rpm-Va.txt" "$OUT_DIR/dpkg-V.txt" | grep -E '^..5' | grep -Eo '/(usr|bin|sbin|lib|opt).+' | grep -Eiv '\.(conf|json|txt|htm|md)' | xargs -I '{}' md5sum '{}' 1>> "$OUT_DIR/files_copied.md5"
 echo 'Done!'
 
