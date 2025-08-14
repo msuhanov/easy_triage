@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250813'
+TOOL_VERSION='20250814'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -54,6 +54,41 @@ PAM_LOCATIONS=(
     "/usr/local/lib/security/"
     "/usr/local/lib64/security/"
 )
+
+# Common locations of .so libraries:
+LIB_LOCATIONS=(
+    "/lib/"
+    "/usr/lib/"
+    "/lib64/"
+    "/usr/lib64/"
+    "/usr/local/lib/"
+    "/usr/local/lib64/"
+    "/lib/x86_64-linux-gnu/"
+    "/usr/lib/x86_64-linux-gnu/"
+)
+
+resolve_lib() { # Resolve a given file name ('*.so') to an expected library path.
+  if [ -n "$1" -a -f "$1" ]; then
+    printf '%s\n' "$1"
+    return
+  fi
+
+  printf '%s\n' "$1" | grep -F '/' >/dev/null 2>/dev/null
+  if [ $? -eq 1 ]; then
+    fn=$(printf '%s\n' "$1" | sed -e 's/ //g') # Sometimes there is an extra space character, deal with it!
+    if [ -n "$fn" ]; then
+      for location in "${LIB_LOCATIONS[@]}"; do
+        if [ -f "$location/$fn" ]; then
+          printf '%s\n' "$location/$fn"
+          return
+        fi
+      done
+    fi
+  else
+    fn=$(printf '%s\n' "$1" | sed -e 's/ //g') # Remove spaces...
+    [ -n "$fn" -a -f "$fn" ] && printf '%s\n' "$fn"
+  fi
+}
 
 # Some sanity checks for user-supplied variables and sanitized hostname...
 [ -n "$OUT_DIR" ] || exit 255
@@ -125,6 +160,7 @@ iwconfig 2>/dev/null 1>"$OUT_DIR/iwconfig.txt"
 iwgetid 1>"$OUT_DIR/iwgetid.txt"
 nmcli -t 1>"$OUT_DIR/nmcli-t.txt"
 iptables -L -v -n 1>"$OUT_DIR/iptables-Lvn.txt"
+cat /etc/hosts.allow 1>"$OUT_DIR/hosts_allow.txt"
 resolvectl show-cache 2>/dev/null 1>"$OUT_DIR/resolvectl-show-cache.txt"
 
 if [ ! -s "$OUT_DIR/resolvectl-show-cache.txt" ]; then
@@ -175,6 +211,7 @@ cat /etc/machine-id 1>"$OUT_DIR/machine-id.txt"
 lsmod 1>"$OUT_DIR/kernel_modules_1.txt"
 cat /proc/modules 1>"$OUT_DIR/kernel_modules_2.txt"
 cat /sys/kernel/security/lockdown 1>"$OUT_DIR/kernel_lockdown_status.txt"
+cat /sys/kernel/oops_count 1>"$OUT_DIR/kernel_oops_count.txt"
 cat /sys/kernel/debug/tracing/tracing_on 1>"$OUT_DIR/kernel_tracing_status.txt"
 cat /sys/kernel/debug/tracing/trace | tail -n 8000 | gzip -7 1>"$OUT_DIR/kernel_tracing_trace_first8000lines.txt.gz"
 
@@ -184,6 +221,9 @@ if [ -n "$tainted_code" ]; then
   tainted_code_masked=$(echo $(($tainted_code & 13313)))
   if [ -n "$tainted_code_masked" -a $tainted_code_masked -eq 12288 ]; then
     echo " note: kernel tainted by out-of-tree and unsigned, but not proprietary module ($tainted_code)"
+    echo 'An out-of-tree and unsigned, but not proprietary module is loaded' 1>"$OUT_DIR/kernel_tainted_code_human.txt"
+  else
+    echo 'Likely a benign situation' 1>"$OUT_DIR/kernel_tainted_code_human.txt"
   fi
 fi
 
@@ -198,6 +238,12 @@ if [ -d /sys/firmware/efi/efivars ]; then
     hexdump -C "$fn" 1>>"$OUT_DIR/efivars_shim.txt" || xxd "$fn" 1>>"$OUT_DIR/efivars_shim.txt"
     echo '---' 1>>"$OUT_DIR/efivars_shim.txt"
   done
+
+  # Also, dump 'dbx'...
+  hexdump -C /sys/firmware/efi/efivars/dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_dbx.txt" || xxd /sys/firmware/efi/efivars/dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_dbx.txt"
+
+  # And 'db'...
+  hexdump -C /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_db.txt" || xxd /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_dbx.txt"
 fi
 
 lastlog 1>"$OUT_DIR/lastlog.txt"
@@ -210,10 +256,10 @@ last -Fi 1>"$OUT_DIR/last-Fi.txt"
 lastb -Fi 1>"$OUT_DIR/lastb-Fi.txt"
 
 lslogins 1>"$OUT_DIR/lslogins.txt"
-lslogins -f 1>"$OUT_DIR/lslogins-f.txt"
-lslogins -L 1>"$OUT_DIR/lslogins-L.txt"
-lslogins -a 1>"$OUT_DIR/lslogins-a.txt"
-lslogins --output-all --notruncate --raw 1>"$OUT_DIR/lslogins-output-all.txt"
+lslogins -f 1>"$OUT_DIR/lslogins-f.txt" 2>/dev/null
+lslogins -L 1>"$OUT_DIR/lslogins-L.txt" 2>/dev/null
+lslogins -a 1>"$OUT_DIR/lslogins-a.txt" 2>/dev/null
+lslogins --output-all --notruncate --raw 1>"$OUT_DIR/lslogins-output-all.txt" 2>/dev/null
 
 wtmpdb last 1>"$OUT_DIR/wtmpdb_last.txt"
 wtmpdb last -Fi 1>"$OUT_DIR/wtmpdb_last-Fi.txt"
@@ -243,6 +289,16 @@ lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
 [ -b /dev/sdb ] && hdparm -I /dev/sdb 1>"$OUT_DIR/hdparm-i-sdb.txt" 2>/dev/null
 [ -b /dev/sdc ] && hdparm -I /dev/sdc 1>"$OUT_DIR/hdparm-i-sdc.txt" 2>/dev/null
 [ -b /dev/sdd ] && hdparm -I /dev/sdd 1>"$OUT_DIR/hdparm-i-sdd.txt" 2>/dev/null
+lspci -vv 1>"$OUT_DIR/lspci-vv.txt" 2>/dev/null
+lscpu 1>"$OUT_DIR/lscpu.txt" 2>/dev/null
+
+# List files on '/media'-mounted NTFS volumes (root and '/Users' only)...
+lsblk -o fstype,mountpoints -r -n | grep -E '^ntfs' | cut -d ' ' -f 2- | grep -E '^/media' 1>"$OUT_DIR/lsblk_ntfs.txt"
+while read -r; do
+  dir=$(echo -e "$REPLY")
+  ls -lht --full-time "$dir" "$dir"/Users 2>/dev/null 1>"$OUT_DIR/ls_ntfs.txt"
+done <"$OUT_DIR/lsblk_ntfs.txt"
+rm -f "$OUT_DIR/lsblk_ntfs.txt"
 
 systemd-ac-power -v 1>"$OUT_DIR/systemd-ac-power.txt" 2>/dev/null
 systemd-detect-virt 1>"$OUT_DIR/systemd-detect-virt.txt" 2>/dev/null
@@ -268,7 +324,6 @@ cat /proc/cpuinfo 1>"$OUT_DIR/proc_misc/cpuinfo.txt"
 cat /proc/iomem 1>"$OUT_DIR/proc_misc/iomem.txt"
 cat /proc/ioports 1>"$OUT_DIR/proc_misc/ioports.txt"
 cat /proc/meminfo 1>"$OUT_DIR/proc_misc/meminfo.txt"
-cat /proc/cpuinfo 1>"$OUT_DIR/proc_misc/cpuinfo.txt"
 cat /proc/keys 1>"$OUT_DIR/proc_misc/keys.txt"
 cat /proc/key-users 1>"$OUT_DIR/proc_misc/key-users.txt"
 cat /proc/stat 1>"$OUT_DIR/proc_misc/stat.txt"
@@ -288,7 +343,7 @@ echo 'Done!'
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
 echo 'Copying important logs...'
 mkdir "$OUT_DIR/logs_audit/" && cp -n -R -t "$OUT_DIR/logs_audit/" /var/log/audit/
-mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp /var/log/wtmp.* /var/log/wtmp-* /var/log/wtmp_* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron* /var/log/dmesg* /var/log/sudo.log*
+mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp /var/log/wtmp2* /var/log/wtmp.* /var/log/wtmp-* /var/log/wtmp_* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron* /var/log/dmesg* /var/log/sudo.log*
 mkdir "$OUT_DIR/logs_apt/" && cp -n -R -t "$OUT_DIR/logs_apt/" /var/log/apt/
 mkdir "$OUT_DIR/logs_atop/" && cp -n -R -t "$OUT_DIR/logs_atop/" /var/log/atop/
 mkdir "$OUT_DIR/logs_sudo/" && cp -n -R -t "$OUT_DIR/logs_sudo/" /var/log/sudo-io/
@@ -300,7 +355,7 @@ echo ' also, journalctl -a -b all'
 journalctl -a -b all -o short-iso-precise --no-pager | gzip -6 1>"$OUT_DIR/journalctl_all.txt.gz"
 
 journal_cnt=$(journalctl -a -b all -o short-iso-precise --no-pager 2>/dev/null | head -n 4 | wc -l)
-if [ $journal_cnt -ne 4 ]; then # Skip these, if '-b all' is supported on the machine
+if [ $journal_cnt -ne 4 ]; then # Skip these, if '-b all' is supported on the machine.
   echo ' also, journalctl -a (for older systems)'
   journalctl -a --no-pager | gzip -4 1>"$OUT_DIR/journalctl_current_boot.txt.gz"
   echo ' also, journalctl -a -b -1 (for older systems)'
@@ -372,10 +427,10 @@ if [ -d /dev/shm/ ]; then
   echo 'Done!'
 fi
 
-echo 'Copying recent crash dumps...'
-mkdir "$OUT_DIR/var_crash/"
-find /var/crash/ -type f -mtime -61 -size -35M -print0 1>>"$OUT_DIR/recent_crash_dumps.txt"
-cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' cp -n -t "$OUT_DIR/var_crash/" '{}'
+echo 'Copying recent crash/core dumps...'
+mkdir "$OUT_DIR/crash_and_core/"
+find /var/crash/ /var/lib/systemd/coredump/ -type f -mtime -61 -size -45M -print0 1>>"$OUT_DIR/recent_crash_dumps.txt"
+cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' cp --backup=numbered -t "$OUT_DIR/crash_and_core/" '{}'
 cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' md5sum '{}' 1>> "$OUT_DIR/files_copied.md5"
 rm -f "$OUT_DIR/recent_crash_dumps.txt"
 echo 'Done!'
@@ -399,6 +454,16 @@ cat /root/.bashrc 1>"$OUT_DIR/root_bashrc.txt" 2>/dev/null
 cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 
+find /proc -mindepth 2 -maxdepth 2 -name 'environ' -type f -exec grep -Fl 'LD_PRELOAD=' {} \; 1>"$OUT_DIR/proc_all_ld_preload.txt" 2>/dev/null
+
+# There are legitimate LD_PRELOAD use cases (like sandboxing), so limit the number of processes to examine...
+cat "$OUT_DIR/proc_all_ld_preload.txt" | head -n 3 1>"$OUT_DIR/proc_all_ld_preload_limit.txt"
+while read -r fn_env; do
+  pid=$(echo "$fn_env" | cut -d '/' -f 3)
+  cat "$fn_env" 1>"$OUT_DIR/environ.bin.$pid" 2>/dev/null
+done <"$OUT_DIR/proc_all_ld_preload_limit.txt"
+rm -f "$OUT_DIR/proc_all_ld_preload_limit.txt"
+
 mkdir "$OUT_DIR/var_spool_cron/" && cp -n -R -t "$OUT_DIR/var_spool_cron/" /var/spool/cron/ 2>/dev/null
 mkdir "$OUT_DIR/var_spool_anacron/" && cp -n -R -t "$OUT_DIR/var_spool_anacron/" /var/spool/anacron/ 2>/dev/null
 mkdir "$OUT_DIR/etc_all_cron/" && cp -n -R -t "$OUT_DIR/etc_all_cron/" /etc/*cron* 2>/dev/null
@@ -419,6 +484,9 @@ for location in "${PAM_LOCATIONS[@]}"; do
     find "$location" -name "*.so" -type f -print0 2>/dev/null | xargs -I '{}' -0 md5sum '{}' 1>>"$OUT_DIR/pam_modules_hashes.txt"
   fi
 done
+
+# Hash EFI executables:
+find /boot/efi/ -xdev -type f -iname '*.exe' -o -iname '*.efi' -exec md5sum {} \; 1>>"$OUT_DIR/efi_executables_hashes.txt"
 
 echo 'Done!'
 
@@ -517,27 +585,66 @@ mkdir "$OUT_DIR/binaries_preload/"
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
-  echo " note: found $fn"
-  cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn"
-  md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
-
-  # Sometimes there is an extra space character, deal with it!
-  fn_sane=$(printf '%s\n' "$fn" | sed -e 's/ //g')
-  [ -n "$fn_sane" -a "$fn_sane" != "$fn" ] && cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn_sane"
-  [ -n "$fn_sane" -a "$fn_sane" != "$fn" ] && md5sum "$fn_sane" 1>> "$OUT_DIR/files_copied.md5"
+  echo " note: found $fn (ld.so.preload)"
+  fn2=$(resolve_lib "$fn")
+  [ -z "$fn2" ] && continue
+  cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn2"
+  md5sum "$fn2" 1>>"$OUT_DIR/files_copied.md5"
 done <"$OUT_DIR/etc_ld_so_preload.txt"
 
 # Use the environment variable...
-cat "$OUT_DIR/environ.bin" | tr '\0' '\n' | grep -E '^LD_PRELOAD=' | cut -d '=' -f 2- | tr ':' '\n' | tr ' ' '\n' | grep -Ev '^$' 1>"$OUT_DIR/environ_ld_preload.txt"
+cat "$OUT_DIR"/environ.bin* | tr '\0' '\n' | grep -E '^LD_PRELOAD=' | cut -d '=' -f 2- | tr ':' '\n' | tr ' ' '\n' | grep -Ev '^$' 1>"$OUT_DIR/environ_ld_preload.txt"
+while read -r; do
+  fn="$REPLY"
+  [ -z "$fn" ] && continue
+  echo " note: found $fn (environ)"
+  fn2=$(resolve_lib "$fn")
+  [ -z "$fn2" ] && continue
+  cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn2"
+  md5sum "$fn2" 1>>"$OUT_DIR/files_copied.md5"
+done <"$OUT_DIR/environ_ld_preload.txt"
+rm -f "$OUT_DIR/environ_ld_preload.txt"
+
+# From systemd...
+find "$OUT_DIR"/systemd_* -type f -name 'local.conf' -print0 | xargs -I '{}' -0 grep -Eo 'LD_PRELOAD( )*=( )*.+' '{}' | sed -e 's/"//g' -e "s/'//g" | cut -d '=' -f 2- | tr ':' '\n' 1>"$OUT_DIR/systemd_ld_preload.txt"
+while read -r; do
+  fn="$REPLY"
+  [ -z "$fn" ] && continue
+  echo " note: found $fn (systemd config)"
+  fn2=$(resolve_lib "$fn")
+  [ -z "$fn2" ] && continue
+  cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn2"
+  md5sum "$fn2" 1>>"$OUT_DIR/files_copied.md5"
+done <"$OUT_DIR/systemd_ld_preload.txt"
+rm -f "$OUT_DIR/systemd_ld_preload.txt"
+
+echo 'Done!'
+
+echo 'Copying segfaulting libraries (observed on last 2 boots)...'
+mkdir "$OUT_DIR/binaries_segfault/"
+
+# This boot.
+grep -F 'segfault at ' "$OUT_DIR/dmesg-T.txt" | grep -Eo '[[:alnum:]]+\.so(\.[[:digit:]]{1,3}){0,1}' 1>"$OUT_DIR/segfault_libs.txt"
+
+# Previous boot.
+grep -F 'segfault at ' "$OUT_DIR/logs/dmesg.0" | grep -Eo '[[:alnum:]]+\.so(\.[[:digit:]]{1,3}){0,1}' 1>>"$OUT_DIR/segfault_libs.txt"
+
+# Previous boot (the same one as above).
+journalctl -b -1 | grep -F 'segfault at ' | grep -Eo '[[:alnum:]]+\.so(\.[[:digit:]]{1,3}){0,1}' 1>>"$OUT_DIR/segfault_libs.txt"
+
+cat "$OUT_DIR/segfault_libs.txt" | grep -Ev '^libc\.so' | sort -T "$OUT_DIR" | uniq | head -n 6 1>>"$OUT_DIR/segfault_libs_.txt" # Limit the number of libraries, just in case...
+mv "$OUT_DIR/segfault_libs_.txt" "$OUT_DIR/segfault_libs.txt"
+
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
   echo " note: found $fn"
-  cp --backup=numbered -t "$OUT_DIR/binaries_preload/" "$fn"
-  md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
-done <"$OUT_DIR/environ_ld_preload.txt"
-rm -f "$OUT_DIR/environ_ld_preload.txt"
-
+  fn2=$(resolve_lib "$fn")
+  [ -z "$fn2" ] && continue
+  cp --backup=numbered -t "$OUT_DIR/binaries_segfault/" "$fn2"
+  md5sum "$fn2" 1>>"$OUT_DIR/files_copied.md5"
+done <"$OUT_DIR/segfault_libs.txt"
+rm -f "$OUT_DIR/segfault_libs.txt"
 echo 'Done!'
 
 echo 'Collecting list of installed executables (DEB)...'
@@ -595,6 +702,7 @@ cat "$OUT_DIR/executables_systemd_deb.txt" "$OUT_DIR/executables_systemd_rpm.txt
 if [ -n "$BIN_IS_SYMLINK" ]; then
   # Still, some files are referenced through /lib/... Fix this!
   cat "$OUT_DIR/executables_systemd_deb_rpm.txt" | sed -e 's/^\/usr\//\//g' > "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt"
+  cat "$OUT_DIR/executables_systemd_deb_rpm.txt" | sed -e 's/^\/lib/\/usr\/lib/g' >> "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt"
   cat "$OUT_DIR/executables_systemd_deb_rpm.txt" "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt" | sort -T "$OUT_DIR" > "$OUT_DIR/executables_systemd_deb_rpm__.txt"
   mv "$OUT_DIR/executables_systemd_deb_rpm__.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt"
   rm -f "$OUT_DIR/executables_systemd_deb_rpm_fixed.txt"
@@ -699,6 +807,7 @@ do_internet=$(echo "$TRIAGE_OPTIONS" | grep -wo 'internet')
 if [ "$do_internet" = 'internet' ]; then
   echo 'Checking basic Internet connectivity (ping and icanhazip)...'
   ping -n -c 3 8.8.8.8 1>"$OUT_DIR/ping_8_8_8_8.txt"
+  ping6 -n -c 3 google.com 1>"$OUT_DIR/ping6_google_com.txt"
 
   which wget 1>/dev/null 2>/dev/null
   if [ $? -eq 0 ]; then
@@ -1223,9 +1332,9 @@ if [ "$do_swap" = 'swap' ]; then
 
   if [ -n "$swap_dev" -a -r "$swap_dev" ]; then
     printf '%s\n' " $swap_dev"
-    # This will never read more than 7 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 700 lines.
+    # This will never read more than 7 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
     # Use direct I/O to reduce the cache usage. If that mode is unavailable, bail out!
-    dd if="$swap_dev" bs=1024 iflag=direct count=7340032 2>/dev/null | $best_strings -n 20 | grep 'Accepted ' | grep ' from ' | head -n 700 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
+    dd if="$swap_dev" bs=1024 iflag=direct count=7340032 2>/dev/null | $best_strings -n 10 | grep -A 5 -B 5 'Accepted ' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
   fi
   echo 'Done!'
 fi
