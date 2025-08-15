@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250814'
+TOOL_VERSION='20250815'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -243,7 +243,7 @@ if [ -d /sys/firmware/efi/efivars ]; then
   hexdump -C /sys/firmware/efi/efivars/dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_dbx.txt" || xxd /sys/firmware/efi/efivars/dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_dbx.txt"
 
   # And 'db'...
-  hexdump -C /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_db.txt" || xxd /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_dbx.txt"
+  hexdump -C /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_db.txt" || xxd /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f 1>>"$OUT_DIR/efivars_db.txt"
 fi
 
 lastlog 1>"$OUT_DIR/lastlog.txt"
@@ -457,7 +457,7 @@ printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 find /proc -mindepth 2 -maxdepth 2 -name 'environ' -type f -exec grep -Fl 'LD_PRELOAD=' {} \; 1>"$OUT_DIR/proc_all_ld_preload.txt" 2>/dev/null
 
 # There are legitimate LD_PRELOAD use cases (like sandboxing), so limit the number of processes to examine...
-cat "$OUT_DIR/proc_all_ld_preload.txt" | head -n 3 1>"$OUT_DIR/proc_all_ld_preload_limit.txt"
+cat "$OUT_DIR/proc_all_ld_preload.txt" | head -n 8 1>"$OUT_DIR/proc_all_ld_preload_limit.txt"
 while read -r fn_env; do
   pid=$(echo "$fn_env" | cut -d '/' -f 3)
   cat "$fn_env" 1>"$OUT_DIR/environ.bin.$pid" 2>/dev/null
