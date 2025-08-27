@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250815'
+TOOL_VERSION='20250827'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -492,8 +492,13 @@ echo 'Done!'
 
 echo 'Copying binaries that failed hash check...'
 mkdir "$OUT_DIR/binaries_failed"
-cat "$OUT_DIR/rpm-Va.txt" "$OUT_DIR/dpkg-V.txt" | grep -E '^..5' | grep -Eo '/(usr|bin|sbin|lib|opt).+' | grep -Eiv '\.(conf|json|txt|htm|md)' | xargs -I '{}' cp --backup=numbered -t "$OUT_DIR/binaries_failed/" '{}'
-cat "$OUT_DIR/rpm-Va.txt" "$OUT_DIR/dpkg-V.txt" | grep -E '^..5' | grep -Eo '/(usr|bin|sbin|lib|opt).+' | grep -Eiv '\.(conf|json|txt|htm|md)' | xargs -I '{}' md5sum '{}' 1>> "$OUT_DIR/files_copied.md5"
+cat "$OUT_DIR/rpm-Va.txt" "$OUT_DIR/dpkg-V.txt" | grep -E '^..5' | grep -Eo '/(usr|bin|sbin|lib|opt).+' | grep -Eiv '\.(conf|json|txt|htm|md)' 1>>"$OUT_DIR/failed_files_to_copy.txt"
+while read -r; do
+  fn="$REPLY"
+  cp --backup=numbered -t "$OUT_DIR/binaries_failed/" "$fn"
+  md5sum "$fn" 1>> "$OUT_DIR/files_copied.md5"
+done <"$OUT_DIR/failed_files_to_copy.txt"
+rm -f "$OUT_DIR/failed_files_to_copy.txt"
 echo 'Done!'
 
 echo 'Checking file signatures and copying suspicious files...'
@@ -1004,7 +1009,7 @@ if [ "$do_orphan" = 'orphan' ]; then
         [ -e "$OUT_DIR/binaries_orphan/$out_base.txt" ] && out_base=$(printf '%s_another\n' "$out_base")
 
         stat -L "$exe_symlink" 1>"$OUT_DIR/binaries_orphan/$out_base.txt"
-        dd if="$exe_symlink" bs=1M count=16 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null
+        dd if="$exe_symlink" bs=1M count=32 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null # In the memory dumper, the limit is lower.
         echo " copied as file: $exe_symlink"
 
         cat "$maps_file" 1> "$OUT_DIR/binaries_orphan/$out_base.mem_map"
