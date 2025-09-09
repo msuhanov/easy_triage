@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250105-beta2'
+TOOL_VERSION='20250909-beta3'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -53,7 +53,7 @@ cat /.ash_history >> triage_results.txt
 echo '===== TIMELINE (/ + /tmp/ + /var/tmp/ + /var/lib/vmware/osdata/):' >> triage_results.txt
 echo 'filename,size,user,group,type,perms,inode,hardlinks,access,modification,change' >> triage_results.txt
 find / /tmp/ /var/tmp/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
-echo '===== PACKING LOGS AND TMP'
+echo '===== END OF TIMELINE' >> triage_results.txt
 echo 'Compressing text results...'
 gzip triage_results.txt
 echo 'Collecting interesting files...'
