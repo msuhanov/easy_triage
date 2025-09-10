@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250827'
+TOOL_VERSION='20250910'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -233,7 +233,7 @@ if [ -d /sys/firmware/efi/efivars ]; then
   ls -l /sys/firmware/efi/efivars/ 1>"$OUT_DIR/ls_efivars.txt"
 
   # Dump EFI variables used by shim...
-  for fn in $(ls /sys/firmware/efi/efivars/*-605dab50-e046-4300-abb6-3dd810dd8b23); do
+  for fn in /sys/firmware/efi/efivars/*-605dab50-e046-4300-abb6-3dd810dd8b23; do
     echo "$fn:" 1>>"$OUT_DIR/efivars_shim.txt"
     hexdump -C "$fn" 1>>"$OUT_DIR/efivars_shim.txt" || xxd "$fn" 1>>"$OUT_DIR/efivars_shim.txt"
     echo '---' 1>>"$OUT_DIR/efivars_shim.txt"
@@ -486,7 +486,7 @@ for location in "${PAM_LOCATIONS[@]}"; do
 done
 
 # Hash EFI executables:
-find /boot/efi/ -xdev -type f -iname '*.exe' -o -iname '*.efi' -exec md5sum {} \; 1>>"$OUT_DIR/efi_executables_hashes.txt"
+find /boot/efi/ -xdev -type f \( -iname '*.exe' -o -iname '*.efi' \) -exec md5sum {} \; 1>>"$OUT_DIR/efi_executables_hashes.txt"
 
 echo 'Done!'
 
