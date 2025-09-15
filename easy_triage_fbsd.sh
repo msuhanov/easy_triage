@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250911-beta1'
+TOOL_VERSION='20250915-beta2'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -137,12 +137,12 @@ echo 'st = os.lstat(sys.argv[3])' >> "$OUT_DIR"/stat.py
 echo 'print(",".join([sys.argv[3], str(st.st_size), str(st.st_uid), str(st.st_gid), str(st.st_mode), str(st.st_ino), str(st.st_nlink), str(st.st_atime), str(st.st_mtime), str(st.st_ctime), str(st.st_birthtime)]))' >> "$OUT_DIR"/stat.py
 chmod +x "$OUT_DIR"/stat.py
 
-find / -xdev -exec "$stat" -f '%N,%z,%u,%g,%p,%i,%l,%9Fa,%9Fm,%9Fc,%9FB' {} \; >> "$OUT_DIR"/timeline.csv
+find / -xdev -exec "$stat" -f '%N,%z,%u,%g,%p,%i,%l,%9Fa,%9Fm,%9Fc,%9FB' {} \; >> "$OUT_DIR"/timeline.csv 2>/dev/null
 for dir in /usr /usr/local /tmp /var /var/tmp /var/log /var/nslog /nsconfig /var/audit /var/mail /var/crash /var/core* /var/netscaler /netscaler /var/vpn /var/nstrace /var/tmp/support /var/install /var/cron /var/www /home /home/* /root /nsroot /flash /srv; do
   mount | grep -F " on $dir (" 2>/dev/null >/dev/null
   [ $? -ne 0 ] && continue
   echo -n " $dir"
-  find "$dir" -xdev -exec "$stat" -f '%N,%z,%u,%g,%p,%i,%l,%9Fa,%9Fm,%9Fc,%9FB' {} \; >> "$OUT_DIR"/timeline.csv
+  find "$dir" -xdev -exec "$stat" -f '%N,%z,%u,%g,%p,%i,%l,%9Fa,%9Fm,%9Fc,%9FB' {} \; >> "$OUT_DIR"/timeline.csv 2>/dev/null
 done
 echo ' done!'
 
