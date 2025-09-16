@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250915-beta2'
+TOOL_VERSION='20250916-beta3'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -74,6 +74,7 @@ w -n >> "$OUT_DIR"/w-n.txt
 dmesg -a >> "$OUT_DIR"/dmesg-a.txt
 sysctl dev >> "$OUT_DIR"/sysctl_dev.txt
 sysctl security >> "$OUT_DIR"/sysctl_security.txt
+sysctl netscaler >> "$OUT_DIR"/sysctl_netscaler.txt
 sysctl hw >> "$OUT_DIR"/sysctl_hw.txt
 last -w -y >> "$OUT_DIR"/last-w-y.txt
 lastlogin >> "$OUT_DIR"/lastlogin.txt
@@ -84,6 +85,8 @@ geom -t >> "$OUT_DIR"/geom-t.txt 2>/dev/null
 geom disk list >> "$OUT_DIR"/geom_disk_list.txt
 mount >> "$OUT_DIR"/mount.txt
 df -h >> "$OUT_DIR"/df-h.txt
+ls -la / > "$OUT_DIR"/ls_root.txt
+ls -la /dev/ >> "$OUT_DIR"/ls_dev.txt
 cat /etc/passwd >> "$OUT_DIR"/passwd.txt
 cat /etc/group >> "$OUT_DIR"/group.txt
 cat /etc/rc.conf >> "$OUT_DIR"/etc_rc_conf.txt
@@ -95,10 +98,20 @@ pfctl -s rules >> "$OUT_DIR"/pfctl-s_rules.txt
 pfctl -s nat >> "$OUT_DIR"/pfctl-s_nat.txt
 pfctl -s states >> "$OUT_DIR"/pfctl-s_states.txt
 ipfw list >> "$OUT_DIR"/ipfw_list.txt
+[ -e /flash/boot/loader.conf ] && cat /flash/boot/loader.conf >> "$OUT_DIR"/flash_boot_loader_conf.txt
+[ -e /netscaler/.signedexe.manifest ] && cat /netscaler/.signedexe.manifest | gzip >> "$OUT_DIR"/netscaler_signedexe_manifest.bin.gz
+[ -e /var/python/.signedexe.manifest ] && cat /var/python/.signedexe.manifest | gzip >> "$OUT_DIR"/python_signedexe_manifest.bin.gz
+[ -e /var/perl5/.signedexe.manifest ] && cat /var/perl5/.signedexe.manifest | gzip >> "$OUT_DIR"/perl_signedexe_manifest.bin.gz
+cat /root/mbox | gzip >> "$OUT_DIR"/root_mbox.txt.gz
+cat /var/mail/root | gzip >> "$OUT_DIR"/var_mail_root.txt.gz
 echo 'Done!'
 
 echo 'Collecting possible persistence info...'
 cat /etc/rc.local >> "$OUT_DIR"/etc_rc_local.txt
+cat /etc/rc >> "$OUT_DIR"/etc_rc.txt
+cat /etc/rc.conf >> "$OUT_DIR"/etc_rc_conf.txt
+ls -la /etc/rc*.d/ >> "$OUT_DIR"/ls_etc_rc_all_d.txt
+ls -la /etc/cron.d/ >> "$OUT_DIR"/ls_etc_cron_d.txt
 cat /etc/crontab >> "$OUT_DIR"/etc_crontab.txt
 atq >> "$OUT_DIR"/atq.txt
 atq -v >> "$OUT_DIR"/atq-v.txt
@@ -110,8 +123,20 @@ last_user=$(cat /etc/passwd | cut -d ':' -f 1 | grep -Ev '^(nobody|root|nsroot)$
 if [ -n "$last_user" ]; then
 	crontab -u "$last_user" -l >> "$OUT_DIR"/crontab_"$last_user".txt
 fi
+
+tar -cvhzf "$OUT_DIR"/crond.tgz /etc/cron.d/
+
+[ -e /etc/httpd.conf ] && cat /etc/httpd.conf >> "$OUT_DIR"/etc_httpd_conf.txt
+[ -e /flash/nsconfig/rc.netscaler ] && cat /flash/nsconfig/rc.netscaler >> "$OUT_DIR"/flash_nsconfig_rc_netscaler.txt
+[ -d /flash/nsconfig/ssh ] && ls -la /flash/nsconfig/ssh >> "$OUT_DIR"/flash_nsconfig_ssh.txt
+
+# Usually, /nsconfig is a symlink to /flash/nsconfig, but who knows...
+[ -d /nsconfig/ssh ] && ls -la /nsconfig/ssh >> "$OUT_DIR"/nsconfig_ssh.txt
 echo 'Done!'
 
+
+# Do this before collecting the timeline!
+# NetScaler appliances log all unsigned scripts, filling the log files...
 echo 'Archiving log files...'
 if [ "$NS_LOGS" = 'y' ]; then
   tar -cvhzf "$OUT_DIR"/logs.tgz /var/log/ /var/nslog/
@@ -149,7 +174,13 @@ echo ' done!'
 gzip "$OUT_DIR"/timeline.csv
 
 echo 'Searching for SUID/SGID binaries...'
-find /usr/bin/ /usr/sbin/ /bin/ /sbin/ /usr/local/ /tmp/ /var/tmp/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) >> "$OUT_DIR"/file_suid_sgid.txt
+find /usr/bin/ /usr/sbin/ /bin/ /sbin/ /usr/local/ /libexec/ /tmp/ /var/tmp/ -maxdepth 4 -type f -a \( -perm -u+s -o -perm -g+s \) >> "$OUT_DIR"/file_suid_sgid.txt
+echo 'Done!'
+
+echo 'Collecting nscli history...'
+cat /.nscli_history >> "$OUT_DIR"/nscli_rootdir_hist.txt
+cat /var/nstmp/nsroot/.nscli_history >> "$OUT_DIR"/nscli_nsroot_hist.txt
+cat '/var/nstmp/#nsinternal#'/.nscli_history >> "$OUT_DIR"/nscli_nsinternal_hist.txt
 echo 'Done!'
 
 echo 'Collecting artifacts from home directories...'
@@ -175,6 +206,7 @@ tar -cvhzf "$OUT_DIR"/temp.tgz /tmp/ /var/tmp/
 echo 'Done!'
 
 if [ "$NS_CORE" = 'y' ]; then
+  # This can be a symlink to /var/crash/core/...
   echo 'Archiving core dumps (/var/core/ only)...'
   tar -cvhzf "$OUT_DIR"/core.tgz /var/core/
   echo 'Done!'
@@ -230,3 +262,11 @@ echo 'Done!'
 
 echo 'All done!'
 echo "$OUT_FILE"
+
+# For NetScaler appliances:
+# - Some additional NSPPE-specific information can be dumped using these commands:
+# nscli -U %%:nsroot:. show ip
+# nscli -U %%:nsroot:. show interface
+# nscli -U %%:nsroot:. show cluster instance
+# nscli -U %%:nsroot:. show cluster node
+# - These commands aren't executed here, because we don't care about these specifics.
