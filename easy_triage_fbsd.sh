@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250916-beta3'
+TOOL_VERSION='20250916-beta4'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -102,6 +102,7 @@ ipfw list >> "$OUT_DIR"/ipfw_list.txt
 [ -e /netscaler/.signedexe.manifest ] && cat /netscaler/.signedexe.manifest | gzip >> "$OUT_DIR"/netscaler_signedexe_manifest.bin.gz
 [ -e /var/python/.signedexe.manifest ] && cat /var/python/.signedexe.manifest | gzip >> "$OUT_DIR"/python_signedexe_manifest.bin.gz
 [ -e /var/perl5/.signedexe.manifest ] && cat /var/perl5/.signedexe.manifest | gzip >> "$OUT_DIR"/perl_signedexe_manifest.bin.gz
+which showtechsupport.pl >/dev/null 2>/dev/null && cat `which showtechsupport.pl` | gzip >> "$OUT_DIR"/showtechsupport.txt.gz
 cat /root/mbox | gzip >> "$OUT_DIR"/root_mbox.txt.gz
 cat /var/mail/root | gzip >> "$OUT_DIR"/var_mail_root.txt.gz
 echo 'Done!'
@@ -132,8 +133,11 @@ tar -cvhzf "$OUT_DIR"/crond.tgz /etc/cron.d/
 
 # Usually, /nsconfig is a symlink to /flash/nsconfig, but who knows...
 [ -d /nsconfig/ssh ] && ls -la /nsconfig/ssh >> "$OUT_DIR"/nsconfig_ssh.txt
-echo 'Done!'
 
+# Collect the NetScaler web portal hashes, and validate them using the vendor's script...
+[ -x /netscaler/portal_core_checksum_check.pl ] && cat /var/netscaler/logon/LogonPoint/checksum_*.txt >> "$OUT_DIR"/portal_core_checksum_check_hashes_all_vers.txt
+[ -x /netscaler/portal_core_checksum_check.pl ] && /netscaler/portal_core_checksum_check.pl >> "$OUT_DIR"/portal_core_checksum_check_results.txt 2>> "$OUT_DIR"/portal_core_checksum_check_results.txt
+echo 'Done!'
 
 # Do this before collecting the timeline!
 # NetScaler appliances log all unsigned scripts, filling the log files...
@@ -155,6 +159,7 @@ echo 'filename,size,user,group,type_and_perms,inode,hardlinks,access,modificatio
 stat=$(which stat 2>/dev/null)
 [ -z "$stat" ] && stat="$OUT_DIR"/stat.py
 
+# A hack for NetScaler appliances:
 echo '#!/usr/bin/env python3' > "$OUT_DIR"/stat.py
 echo 'import sys' >> "$OUT_DIR"/stat.py
 echo 'import os' >> "$OUT_DIR"/stat.py
@@ -222,7 +227,8 @@ echo "$orphan_pids" | sort | uniq >> "$OUT_DIR"/orphan_pids.txt
 # Notes:
 # - Unfortunately, this doesn't work on older versions of FreeBSD (the '-k' argument can be unsupported by 'gcore').
 # - All current (as of 2025-09: versions 13.1 & 14.1) NetScaler firmware doesn't support 'gcore -k'... :-(
-# - Users are encouraged to [manually] spy on these processes using 'truss', or dump the RAM.
+# - Users are encouraged to [manually] spy on these processes using 'truss' (which seems to be blocked at the kernel level),
+#     or dump the RAM.
 orphan_pids_limit=$(head -n $ORPHAN_LIMIT "$OUT_DIR"/orphan_pids.txt)
 for pid in $orphan_pids_limit; do
   echo "  dumping PID: $pid"
