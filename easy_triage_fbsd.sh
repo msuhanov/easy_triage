@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250916-beta4'
+TOOL_VERSION='20250917-beta5'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -26,7 +26,7 @@ NS_CORE='y'
 UPDATE_IDS='n'
 
 # Search for possible web shells (PHP) using this regex (grep -Ei):
-WEBSHELL_REGEX='eval\($_|base64_decode\(|http_status_code\(|http_response_code\(40|array_filter\(|openssl_decrypt\('
+WEBSHELL_REGEX='eval\($_|base64_decode\(|http_status_code\(|http_response_code\(40|array_filter\(|openssl_decrypt\(|str_rot13\(|hex2bin\(substr\(|base64_decode\($_|@array_filter'
 
 # Some sanity checks for user-supplied variables and hostname...
 [ -n "$OUT_DIR" ] || exit 255
@@ -148,6 +148,55 @@ else
   tar -cvhzf "$OUT_DIR"/logs.tgz /var/log/
 fi
 echo 'Done!'
+
+# On NetScaler appliances, collect binaries that trigger veriexec warnings.
+if [ -d /var/nslog ]; then
+  echo 'Collecting binaries that failed MAC check...'
+  mkdir "$OUT_DIR"/binaries_failed
+
+  # Let's examine kernel messages: in the current log file and in some of the previous ones...
+  # (Skip entries that refer to this collector!)
+  for fn_log in /var/log/messages /var/log/messages.0 /var/log/messages.1 /var/log/messages.2 /var/log/messages.3 /var/log/messages.4 /var/log/messages.5; do
+    [ -e $fn_log ] || continue
+    cat $fn_log | grep -Fa 'MAC/veriexec: no fingerprint (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+    cat $fn_log | grep -Fa 'MAC/veriexec: fingerprint does not match loaded value (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+  done
+
+  # Also, handle compressed (gzip) log files...
+  for fn_log in /var/log/messages.0.gz /var/log/messages.1.gz /var/log/messages.2.gz /var/log/messages.3.gz /var/log/messages.4.gz /var/log/messages.5.gz; do
+    [ -e $fn_log ] || continue
+    zcat $fn_log | grep -Fa 'MAC/veriexec: no fingerprint (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+    zcat $fn_log | grep -Fa 'MAC/veriexec: fingerprint does not match loaded value (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+  done
+
+  # The path can be absolute or relative, it may contain spaces and backslashes (not escaped), so treat paths literally...
+  #
+  # There is a bug:
+  # - When veriexec writes to the log aggressively, it can concatenate two log messages together. We ignore such lines.
+  # - Example: "ppid=16308 gppid=9202)MAC/veriexec: no fingerprint".
+  cat "$OUT_DIR"/binaries_failed_logs.txt | grep -Fva ')MAC/veriexec:' | grep -Eoa 'file=.* fsid=' | cut -d '=' -f 2- | sed -e 's/ fsid=//g' | sort | uniq >> "$OUT_DIR"/binaries_failed.txt
+
+  cat "$OUT_DIR"/binaries_failed.txt | head -n 10 > "$OUT_DIR"/binaries_failed_logs_limit.txt
+  while read -r fn; do
+    [ -f "$fn" ] || continue
+    echo " copying: $fn"
+    cp -n "$fn" "$OUT_DIR"/binaries_failed/
+    md5 "$fn" >>"$OUT_DIR"/files_copied.md5
+  done <"$OUT_DIR"/binaries_failed_logs_limit.txt
+
+  # Now, handle relative paths (assuming they are relative to /root/)...
+  while read -r fn; do
+    [ -f "$fn" ] && continue # Already copied it...
+    [ -f /root/"$fn" ] || continue
+    echo " copying: /root/$fn"
+    cp -n /root/"$fn" "$OUT_DIR"/binaries_failed/
+    md5 /root/"$fn" >>"$OUT_DIR"/files_copied.md5
+  done <"$OUT_DIR"/binaries_failed_logs_limit.txt
+
+  rm -f "$OUT_DIR"/binaries_failed_logs_limit.txt
+  rm -f "$OUT_DIR"/binaries_failed_logs.txt
+  echo 'Done!'
+fi
 
 [ -d /var/nslog ] && echo '' && echo '(On NetScaler appliances, timeline collection could take up to 4 hours!)' && echo ''
 echo -n 'Collecting timeline... /'
