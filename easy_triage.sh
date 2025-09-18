@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250910'
+TOOL_VERSION='20250918'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -450,6 +450,7 @@ cat /etc/ld.so.preload 1>"$OUT_DIR/etc_ld_so_preload.txt" 2>/dev/null
 cat /proc/self/environ 1>"$OUT_DIR/environ.bin" 2>/dev/null
 cat /etc/profile 1>"$OUT_DIR/etc_profile.txt" 2>/dev/null
 cat /etc/bash.bashrc 1>"$OUT_DIR/etc_bash_bashrc.txt" 2>/dev/null
+cat /etc/bashrc 1>"$OUT_DIR/etc_bashrc.txt" 2>/dev/null
 cat /root/.bashrc 1>"$OUT_DIR/root_bashrc.txt" 2>/dev/null
 cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
