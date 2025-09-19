@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250917-beta5'
+TOOL_VERSION='20250919-beta6'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -235,6 +235,13 @@ echo 'Collecting nscli history...'
 cat /.nscli_history >> "$OUT_DIR"/nscli_rootdir_hist.txt
 cat /var/nstmp/nsroot/.nscli_history >> "$OUT_DIR"/nscli_nsroot_hist.txt
 cat '/var/nstmp/#nsinternal#'/.nscli_history >> "$OUT_DIR"/nscli_nsinternal_hist.txt
+
+for fn in /var/nstmp/history.txt.*; do
+  [ "$fn" = '/var/nstmp/history.txt.*' ] && continue
+  echo "======= tail -n 50 $fn:" >> "$OUT_DIR"/spsh_hist_last50.txt
+  tail -n 50 "$fn" >> "$OUT_DIR"/spsh_hist_last50.txt
+  echo "======= end" >> "$OUT_DIR"/spsh_hist_last50.txt
+done
 echo 'Done!'
 
 echo 'Collecting artifacts from home directories...'
@@ -318,10 +325,34 @@ echo 'Done!'
 echo 'All done!'
 echo "$OUT_FILE"
 
+# This command must be executed after the archive has been created!
+# The -U argument is mostly undocumented, and if its current implementation changes, this command would block the execution (wait for user input).
+# So, run it after anything else...
+
+if [ -d /var/nslog ]; then
+  sessions=$(nscli -U %%:.:. show system session 2>/dev/null)
+
+  echo "$sessions" | grep -Fw '2)' 1>/dev/null 2>/dev/null
+  if [ $? -eq  0 ]; then # More than one session found.
+    OUT_BASE=$(basename "$OUT_FILE" .bin)
+    OUT_FILE2="$OUT_BASE.txt"
+    echo "$sessions" >> "$OUT_FILE2"
+    echo "$OUT_FILE2"
+  fi
+fi
+
 # For NetScaler appliances:
+#
 # - Some additional NSPPE-specific information can be dumped using these commands:
 # nscli -U %%:nsroot:. show ip
 # nscli -U %%:nsroot:. show interface
 # nscli -U %%:nsroot:. show cluster instance
 # nscli -U %%:nsroot:. show cluster node
-# - These commands aren't executed here, because we don't care about these specifics.
+#
+# - And for HA/HA-INC setups (although this isn't NSPPE-specific):
+# nscli -U %%:nsroot:. show ha node
+#
+# - Also, for all setups, RPC configuration (encrypted passwords and options):
+# nscli -U %%:nsroot:. show rpc
+#
+# - These commands aren't executed here, because we don't care about such details.
