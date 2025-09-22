@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250919-beta6'
+TOOL_VERSION='20250922-beta7'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -130,6 +130,9 @@ tar -cvhzf "$OUT_DIR"/crond.tgz /etc/cron.d/
 [ -e /etc/httpd.conf ] && cat /etc/httpd.conf >> "$OUT_DIR"/etc_httpd_conf.txt
 [ -e /flash/nsconfig/rc.netscaler ] && cat /flash/nsconfig/rc.netscaler >> "$OUT_DIR"/flash_nsconfig_rc_netscaler.txt
 [ -d /flash/nsconfig/ssh ] && ls -la /flash/nsconfig/ssh >> "$OUT_DIR"/flash_nsconfig_ssh.txt
+
+# Passwords extracted here are encrypted.
+[ -d /nsconfig ] && grep -H 'add system user ' /nsconfig/ns.conf /nsconfig/unified.conf >> "$OUT_DIR"/nsconfig_system_users.txt 2>/dev/null
 
 # Usually, /nsconfig is a symlink to /flash/nsconfig, but who knows...
 [ -d /nsconfig/ssh ] && ls -la /nsconfig/ssh >> "$OUT_DIR"/nsconfig_ssh.txt
