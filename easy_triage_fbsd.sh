@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250922-beta7'
+TOOL_VERSION='20250925'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -16,7 +16,7 @@ OUT_FILE='artifact_collection_'"$HOSTNAME"'.bin'
 ORPHAN_LIMIT=4
 
 # Collect NetScaler logs (/var/nslog/)? (Logs in /var/log/ aren't affected by this option.)
-NS_LOGS='y'
+NS_LOGS='n'
 
 # Collect NetScaler core dumps (/var/core/)? (Core dumps from other programs can be present there too.)
 NS_CORE='y'
@@ -140,6 +140,10 @@ tar -cvhzf "$OUT_DIR"/crond.tgz /etc/cron.d/
 # Collect the NetScaler web portal hashes, and validate them using the vendor's script...
 [ -x /netscaler/portal_core_checksum_check.pl ] && cat /var/netscaler/logon/LogonPoint/checksum_*.txt >> "$OUT_DIR"/portal_core_checksum_check_hashes_all_vers.txt
 [ -x /netscaler/portal_core_checksum_check.pl ] && /netscaler/portal_core_checksum_check.pl >> "$OUT_DIR"/portal_core_checksum_check_results.txt 2>> "$OUT_DIR"/portal_core_checksum_check_results.txt
+
+# The 'check' argument is undocumented!
+# Always run this tool before copying any executables! Otherwise, these copies will be detected and reported.
+[ -x /netscaler/sigchk ] && /netscaler/sigchk check >> "$OUT_DIR"/sigchk_check.txt 2>/dev/null
 echo 'Done!'
 
 # Do this before collecting the timeline!
@@ -177,9 +181,14 @@ if [ -d /var/nslog ]; then
   # There is a bug:
   # - When veriexec writes to the log aggressively, it can concatenate two log messages together. We ignore such lines.
   # - Example: "ppid=16308 gppid=9202)MAC/veriexec: no fingerprint".
-  cat "$OUT_DIR"/binaries_failed_logs.txt | grep -Fva ')MAC/veriexec:' | grep -Eoa 'file=.* fsid=' | cut -d '=' -f 2- | sed -e 's/ fsid=//g' | sort | uniq >> "$OUT_DIR"/binaries_failed.txt
+  cat "$OUT_DIR"/binaries_failed_logs.txt | grep -Fva ')MAC/veriexec:' | grep -Eoa 'file=.* fsid=' | cut -d '=' -f 2- | sed -e 's/ fsid=//g' | sort | uniq >> "$OUT_DIR"/binaries_failed.txt_
 
-  cat "$OUT_DIR"/binaries_failed.txt | head -n 10 > "$OUT_DIR"/binaries_failed_logs_limit.txt
+  # Add the 'sigchk check' results...
+  cat "$OUT_DIR"/sigchk_check.txt | grep -E '^/'  >> "$OUT_DIR"/binaries_failed.txt_ 2>/dev/null
+  cat "$OUT_DIR"/binaries_failed.txt_ | sort | uniq > "$OUT_DIR"/binaries_failed.txt
+  rm -f "$OUT_DIR"/binaries_failed.txt_
+
+  cat "$OUT_DIR"/binaries_failed.txt | head -n 25 > "$OUT_DIR"/binaries_failed_logs_limit.txt
   while read -r fn; do
     [ -f "$fn" ] || continue
     echo " copying: $fn"
@@ -304,7 +313,7 @@ echo 'Checking integrity of packages...'
 freebsd_version_supported=$(uname -U | grep -E '^(10|11|12|13|14|15|16)' >/dev/null 2>/dev/null)
 if [ -n "$freebsd_version_supported" ]; then # On very old versions of FreeBSD (<= 9), 'pkg -N' can wait for user input...
   pkg -N >> "$OUT_DIR"/pkg-bootstrapped.txt 2>> "$OUT_DIR"/pkg-bootstrapped.txt
-  [ $? -eq 0 ] && pkg check -a -s 2>"$OUT_DIR"/pkg-check-a-s.txt # The 'pkg', when not bootstrapped, can block the execution!
+  [ $? -eq 0 ] && pkg check -a -s 2>"$OUT_DIR"/pkg-check-a-s.txt # The 'pkg' command, when not bootstrapped, can block the execution!
 fi
 
 if [ "$UPDATE_IDS" = 'y' ]; then
