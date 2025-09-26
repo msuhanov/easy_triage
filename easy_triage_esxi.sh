@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250925-beta4'
+TOOL_VERSION='20250926-beta5'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -24,9 +24,9 @@ echo '===== PERMISSION LIST:' >> triage_results.txt
 esxcli system permission list >> triage_results.txt
 echo '===== NETWORK INTERFACES:' >> triage_results.txt
 esxcli network ip interface list >> triage_results.txt
-echo 'IPv4:' >> triage_results.txt
+echo '======= IPv4:' >> triage_results.txt
 esxcli network ip interface ipv4 get >> triage_results.txt
-echo 'IPv6:' >> triage_results.txt
+echo '======= IPv6:' >> triage_results.txt
 esxcli network ip interface ipv6 get >> triage_results.txt
 echo '===== BOOT:' >> triage_results.txt
 esxcli hardware trustedboot get >> triage_results.txt
@@ -34,6 +34,10 @@ echo '===== VM LIST:' >> triage_results.txt
 esxcli vm process list >> triage_results.txt
 echo '===== FILE SYSTEMS:' >> triage_results.txt
 esxcli storage filesystem list >> triage_results.txt
+echo '===== CORE DUMPS CONFIGURED:' >> triage_results.txt
+esxcli system coredump file get >> triage_results.txt
+echo '===== EXECUTION OF 3RD-PARTY BINARIES:' >> triage_results.txt
+esxcli system settings kernel list -o execInstalledOnly >> triage_results.txt
 echo '===== UPTIME:' >> triage_results.txt
 uptime >> triage_results.txt
 echo '===== HOSTNAME:' >> triage_results.txt
