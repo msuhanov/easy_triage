@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250918'
+TOOL_VERSION='20250929'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -210,6 +210,7 @@ cat /etc/machine-id 1>"$OUT_DIR/machine-id.txt"
 
 lsmod 1>"$OUT_DIR/kernel_modules_1.txt"
 cat /proc/modules 1>"$OUT_DIR/kernel_modules_2.txt"
+cat /proc/vmallocinfo | gzip -7 1>"$OUT_DIR/kernel_vmallocinfo.txt.gz"
 cat /sys/kernel/security/lockdown 1>"$OUT_DIR/kernel_lockdown_status.txt"
 cat /sys/kernel/oops_count 1>"$OUT_DIR/kernel_oops_count.txt"
 cat /sys/kernel/debug/tracing/tracing_on 1>"$OUT_DIR/kernel_tracing_status.txt"
