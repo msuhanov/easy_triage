@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250930-beta6'
+TOOL_VERSION='20250930-beta7'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -71,14 +71,14 @@ tar -tvf /local.tgz >> triage_results.txt
 echo '===== STATE.TGZ:' >> triage_results.txt
 stat /bootbank/state.tgz >> triage_results.txt
 tar -tvf /bootbank/state.tgz >> triage_results.txt
-echo '===== TIMELINE (/ + /tmp/ + /var/tmp/ + /var/lib/vmware/osdata/):' >> triage_results.txt
+echo '===== TIMELINE (/ + /tmp/ + /var/tmp/ + /dev/shm/ + /var/lib/vmware/osdata/):' >> triage_results.txt
 echo 'filename,size,user,group,type,perms,inode,hardlinks,access,modification,change' >> triage_results.txt
-find / /tmp/ /var/tmp/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
+find / /tmp/ /var/tmp/ /dev/shm/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
 echo '===== END OF TIMELINE' >> triage_results.txt
 echo 'Compressing text results...'
 gzip triage_results.txt
 echo 'Collecting interesting files...'
-tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/
+tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/
 echo 'Done!'
 echo 'triage_results.txt.gz'
 echo 'triage_files.tgz'
