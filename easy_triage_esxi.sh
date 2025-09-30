@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250926-beta5'
+TOOL_VERSION='20250930-beta6'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -12,6 +12,10 @@ echo "$TOOL_VERSION" > triage_results.txt
 date >> triage_results.txt
 echo '===== VERSION:' >> triage_results.txt
 esxcli system version get >> triage_results.txt
+echo '===== BOOT TIME:' >> triage_results.txt
+cat /var/run/bootTime >> triage_results.txt
+echo '===== UPTIME:' >> triage_results.txt
+uptime >> triage_results.txt
 echo '===== SYSLOG CONFIG:' >> triage_results.txt
 esxcli system syslog config get >> triage_results.txt
 echo '===== SNMP:' >> triage_results.txt
@@ -38,8 +42,6 @@ echo '===== CORE DUMPS CONFIGURED:' >> triage_results.txt
 esxcli system coredump file get >> triage_results.txt
 echo '===== EXECUTION OF 3RD-PARTY BINARIES:' >> triage_results.txt
 esxcli system settings kernel list -o execInstalledOnly >> triage_results.txt
-echo '===== UPTIME:' >> triage_results.txt
-uptime >> triage_results.txt
 echo '===== HOSTNAME:' >> triage_results.txt
 hostname  >> triage_results.txt
 echo '===== PROCESS LIST' >> triage_results.txt
@@ -60,6 +62,15 @@ echo '===== DMESG:' >> triage_results.txt
 dmesg >> triage_results.txt
 echo '===== SHELL HISTORY:' >> triage_results.txt
 cat /.ash_history >> triage_results.txt
+echo '===== CRONTAB:' >> triage_results.txt
+cat /var/spool/cron/crontabs/root >> triage_results.txt
+echo '===== LOCAL.SH:' >> triage_results.txt
+cat /etc/rc.local.d/local.sh >> triage_results.txt
+echo '===== LOCAL.TGZ:' >> triage_results.txt
+tar -tvf /local.tgz >> triage_results.txt
+echo '===== STATE.TGZ:' >> triage_results.txt
+stat /bootbank/state.tgz >> triage_results.txt
+tar -tvf /bootbank/state.tgz >> triage_results.txt
 echo '===== TIMELINE (/ + /tmp/ + /var/tmp/ + /var/lib/vmware/osdata/):' >> triage_results.txt
 echo 'filename,size,user,group,type,perms,inode,hardlinks,access,modification,change' >> triage_results.txt
 find / /tmp/ /var/tmp/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
