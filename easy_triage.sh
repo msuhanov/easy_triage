@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250929'
+TOOL_VERSION='20250930'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -26,23 +26,28 @@ OUT_FILE='artifact_collection_'"$HOSTNAME_SANE"'.bin'
 # - 'swap' (carve interesting strings from swap, currently this is limited to the "Accepted (password|...) from" strings);
 # - 'orphan' (dump deleted but running executables, both from the disk and from the memory);
 # - 'internet' (check Internet connectivity, get external IP address through 'icanhazip.com', and get date & time from online server);
-# - 'rootkit' (search for hidden PIDs by scanning the /proc directory, trying to locate PIDs hidden from the readdir()-like calls);
+# - 'rootkit' (search for hidden PIDs by scanning the /proc directory, trying to locate PIDs hidden from the readdir()-like calls;
+#              also, search for common file name patterns hidden with userspace rootkits);
 # - 'qemu' (find a suspicious "headless" QEMU VM, if any, and copy its virtual disk, writing at most 64 MiB of its data);
 # - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits);
-# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 3-4 minutes; the 'strace' package will be installed if needed).
+# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 3-4 minutes; the 'strace' package will be installed if needed);
+# - 'libscan' (scan .so libraries for malware, using built-in signatures).
 # (Their order does not matter.)
-TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc strace'
+TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc libscan strace'
 
 # Refuse to run if there is not enough disk space:
-FREESPACE_THRESHOLD=1048576 # In 1024-byte blocks.
+FREESPACE_THRESHOLD=2097152 # In 1024-byte blocks.
 
 # Regular expression (grep -Ei) to examine command history files:
 HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|php|perl|python|\.py|\.sh|\.sql|tmp|temp|shm|splo|xplo|cve|gcc|chmod|passwd|shadow|useradd|authorized_keys|hosts|[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}|github|pastebin|cdn|(:| )(443|80|22|445|3389)|nmap|scan|dump|flood|ddos|ncat|netcat|gsock|gs.sock|gssock|g.sock|a\.out|HISTFILE|preload|sh_history|whoami|^w$|\.io'
 
+# Regular expression (grep -E, note the missing -i) to examine .so files:
+LIBRARY_REGEX='base64_decode\(|/var/www/html/|/proc/%s/stat|/proc/net/tcp'
+
 # Syscall filters (strace -e):
 STRACE_FILTER='connect,bind,listen,accept,getpeername'
 
-# Common locations for PAM modules across distributions:
+# Common locations for PAM modules across distributions (no symlinks accounted):
 PAM_LOCATIONS=(
     "/lib/security/"
     "/lib64/security/"
@@ -56,7 +61,13 @@ PAM_LOCATIONS=(
 )
 
 # Common locations of .so libraries:
-LIB_LOCATIONS=(
+[ -h /lib ] && LIB_LOCATIONS=(
+    "/usr/lib/"
+    "/usr/lib64/"
+    "/usr/local/lib/"
+    "/usr/local/lib64/"
+    "/usr/lib/x86_64-linux-gnu/"
+) || LIB_LOCATIONS=(
     "/lib/"
     "/usr/lib/"
     "/lib64/"
@@ -65,6 +76,12 @@ LIB_LOCATIONS=(
     "/usr/local/lib64/"
     "/lib/x86_64-linux-gnu/"
     "/usr/lib/x86_64-linux-gnu/"
+)
+
+HIDDEN_NAMES=(
+    "opensshd"
+    "juba"
+    "common-libc.so"
 )
 
 resolve_lib() { # Resolve a given file name ('*.so') to an expected library path.
@@ -110,7 +127,7 @@ if [ -n "$free_blocks" ]; then
   echo ''
 
   if [ $free_blocks -lt $FREESPACE_THRESHOLD ]; then
-    echo 'Not enough disk space, refusing to run :-('
+    echo 'Not enough disk space (in CWD), refusing to run :-('
     exit 1
   fi
 fi
@@ -723,11 +740,12 @@ cat "$OUT_DIR/executables_fake_systemd.txt" | head -n 25 1>> "$OUT_DIR/executabl
 rm -f "$OUT_DIR/executables_systemd_present.txt" "$OUT_DIR/executables_fake_systemd.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt"
 echo 'Done!'
 
-echo 'Copying fake systemd executables...'
+echo 'Copying fake systemd executables, if any...'
 mkdir "$OUT_DIR/binaries_fake_systemd/"
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
+  echo " note: found $fn"
   cp --backup=numbered -t "$OUT_DIR/binaries_fake_systemd/" "$fn"
   md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
 done <"$OUT_DIR/executables_fake_systemd_limit.txt"
@@ -1124,7 +1142,7 @@ if [ -n "$best_python" -a "$do_rootkit" = 'rootkit' ]; then
 
     fn_out=$(printf '%s\n' "$fn" | sed -e 's/\//_/g' -e 's/[[:space:]]/_/g')
     stat "$fn" 1> "$OUT_DIR/binaries_rootkit/$fn_out.txt"
-    dd if="$fn" bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$fn_out.fs_bin_by_path" 2>/dev/null
+    dd if="$fn" bs=1M count=24 of="$OUT_DIR/binaries_rootkit/$fn_out.fs_bin_by_path" 2>/dev/null
   done <"$OUT_DIR/scan_pids_exes.txt"
 
   # Dump from '/proc/<pid>/exe'.
@@ -1132,8 +1150,33 @@ if [ -n "$best_python" -a "$do_rootkit" = 'rootkit' ]; then
     pid="$REPLY"
     [ -z "$pid" ] && continue
 
-    dd if=/proc/"$pid"/exe bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_pid" 2>/dev/null
+    dd if=/proc/"$pid"/exe bs=1M count=24 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_pid" 2>/dev/null
   done <"$OUT_DIR/scan_pids_pids.txt"
+fi
+
+if [ "$do_rootkit" = 'rootkit' ]; then
+  # Try to catch some userspace rootkits like JUBAVOIP...
+  echo 'Testing for presence of some userspace rootkits...'
+  mkdir "$OUT_DIR/rk_tests"
+
+  for fn in "${HIDDEN_NAMES[@]}"; do
+    echo 'test test test test' > "$OUT_DIR/rk_tests/$fn"
+
+    # Try to keep stdout and stderr "present"...
+    discard=$(cat "$OUT_DIR/rk_tests/$fn") # 'cat' can be backdoored...
+    ec1=$?
+    discard=$(ls "$OUT_DIR/rk_tests/$fn") # 'ls' can be backdoored...
+    ec2=$?
+
+    if [ $ec1 -ne 0 -o $ec2 -ne 0 ]; then
+      echo " note: filenames like $fn are hidden"
+      printf "File became invisible: %s, cat returned %d, ls returned %d\n" "$fn" $ec1 $ec2 >> "$OUT_DIR/rk_tests.txt"
+    fi
+    rm -f "$OUT_DIR/rk_tests/$fn"
+  done
+
+  rmdir "$OUT_DIR/rk_tests" 2>/dev/null
+  echo 'Done!'
 fi
 
 do_qemu=$(echo "$TRIAGE_OPTIONS" | grep -wo 'qemu')
@@ -1219,7 +1262,7 @@ if [ "$do_omproc" = 'omproc' ]; then
       echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
 
       mkdir "$OUT_DIR/binaries_rootkit" 2>/dev/null
-      dd if="$OUT_DIR/new_proc/$pid"/exe bs=1M count=16 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_ompid" 2>/dev/null
+      dd if="$OUT_DIR/new_proc/$pid"/exe bs=1M count=24 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_ompid" 2>/dev/null
     done <"$OUT_DIR/overmounted_pids.txt"
 
     sleep 3
@@ -1227,6 +1270,36 @@ if [ "$do_omproc" = 'omproc' ]; then
     sleep 4
     umount "$OUT_DIR/new_proc/" 2>/dev/null && rmdir "$OUT_DIR/new_proc/" 2>/dev/null
   fi
+
+  echo 'Done!'
+fi
+
+# Scan .so libraries for some known malware signatures...
+# Currently, this detects userspace rootkits like JUBAVOIP.
+do_libscan=$(echo "$TRIAGE_OPTIONS" | grep -wo 'libscan')
+
+if [ "$do_libscan" = 'libscan' ]; then
+  echo 'Scanning .so libraries...'
+
+  for location in "${LIB_LOCATIONS[@]}"; do
+    if [ -d "$location" ]; then
+      grep -El "$LIBRARY_REGEX" "$location"/*.so 1>>"$OUT_DIR/libscan.txt" 2>/dev/null
+    fi
+  done
+
+  found_cnt=$(cat "$OUT_DIR/libscan.txt" | wc -l)
+  echo " note: found $found_cnt match(es)"
+  mkdir "$OUT_DIR/binaries_libscan"
+
+  cat "$OUT_DIR/libscan.txt" | head -n 8 1>"$OUT_DIR/libscan_limit.txt"
+  while read -r; do
+    fn="$REPLY"
+    [ -z "$fn" ] && continue
+    echo " note: copying $fn"
+    cp --backup=numbered -t "$OUT_DIR/binaries_libscan/" "$fn"
+    md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
+  done <"$OUT_DIR/libscan_limit.txt"
+  rm -f "$OUT_DIR/libscan_limit.txt"
 
   echo 'Done!'
 fi
