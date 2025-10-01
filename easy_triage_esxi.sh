@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250930'
+TOOL_VERSION='20251001'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -24,6 +24,7 @@ echo '===== ACCOUNT LIST:' >> triage_results.txt
 esxcli system account list >> triage_results.txt
 echo '===== LOGGED ON USERS:' >> triage_results.txt
 w >> triage_results.txt
+echo '---' >> triage_results.txt
 who >> triage_results.txt
 echo '===== PERMISSION LIST:' >> triage_results.txt
 esxcli system permission list >> triage_results.txt
