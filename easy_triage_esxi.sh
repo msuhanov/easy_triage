@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251001'
+TOOL_VERSION='20251013'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -64,6 +64,8 @@ echo '===== DMESG:' >> triage_results.txt
 dmesg >> triage_results.txt
 echo '===== SHELL HISTORY:' >> triage_results.txt
 cat /.ash_history >> triage_results.txt
+echo '===== PYTHON HISTORY:' >> triage_results.txt
+cat /.python_history >> triage_results.txt
 echo '===== CRONTAB:' >> triage_results.txt
 cat /var/spool/cron/crontabs/root >> triage_results.txt
 echo '===== LOCAL.SH:' >> triage_results.txt
