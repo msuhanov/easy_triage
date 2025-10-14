@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251013'
+TOOL_VERSION='20251014'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -65,7 +65,7 @@ dmesg >> triage_results.txt
 echo '===== SHELL HISTORY:' >> triage_results.txt
 cat /.ash_history >> triage_results.txt
 echo '===== PYTHON HISTORY:' >> triage_results.txt
-cat /.python_history >> triage_results.txt
+cat /.python_history >> triage_results.txt 2>/dev/null
 echo '===== CRONTAB:' >> triage_results.txt
 cat /var/spool/cron/crontabs/root >> triage_results.txt
 echo '===== LOCAL.SH:' >> triage_results.txt
@@ -79,6 +79,14 @@ echo '===== TIMELINE (/ + /tmp/ + /var/tmp/ + /dev/shm/ + /var/lib/vmware/osdata
 echo 'filename,size,user,group,type,perms,inode,hardlinks,access,modification,change' >> triage_results.txt
 find / /tmp/ /var/tmp/ /dev/shm/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
 echo '===== END OF TIMELINE' >> triage_results.txt
+echo '===== VIB LIST:' >> triage_results.txt
+esxcli software vib list >> triage_results.txt
+echo '===== VIB LIST #2:' >> triage_results.txt
+esxcli software vib get >> triage_results.txt
+echo '===== ACCEPTANCE:' >> triage_results.txt
+esxcli software acceptance get >> triage_results.txt
+echo '===== SSH KEYS:' >> triage_results.txt
+esxcli system ssh key list >> triage_results.txt
 echo 'Compressing text results...'
 gzip triage_results.txt
 echo 'Collecting interesting files...'
