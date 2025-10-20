@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250930'
+TOOL_VERSION='20251020'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -592,6 +592,22 @@ else
 fi
 echo 'Done!'
 
+echo 'Scanning for files with capabilities...'
+if [ -n "$BIN_IS_SYMLINK" ]; then
+  if [ -n "$USR_SBIN_IS_SYMLINK" ]; then
+    getcap -r /usr/bin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+  else
+    getcap -r /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+  fi
+  getcap -r /usr/lib*/ 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+  getcap -r /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+else
+  getcap -r /bin/ /sbin/ /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+  getcap -r /lib*/ /usr/lib*/ 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+  getcap -r /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker 2>/dev/null 1>> "$OUT_DIR/file_caps.txt"
+fi
+echo 'Done!'
+
 echo 'Copying SUID/SGID files...'
 mkdir "$OUT_DIR/binaries_suid_sgid/"
 while read -r; do
@@ -600,6 +616,19 @@ while read -r; do
   cp --backup=numbered -t "$OUT_DIR/binaries_suid_sgid/" "$fn"
   md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
 done <"$OUT_DIR/file_suid_sgid.txt"
+echo 'Done!'
+
+echo 'Copying files with setuid/setgid/sysadm/bpf capability...'
+cat "$OUT_DIR/file_caps.txt" | grep -E ' (cap_set.id|cap_sys_adm|cap_bpf)=ep' | cut -d ' ' -f 1 > "$OUT_DIR/file_caps_adm.txt"
+cat "$OUT_DIR/file_caps.txt" | grep -E '(,| )(cap_set.id|cap_sys_adm|cap_bpf)(,[a-z0-9_]+)+=ep' | cut -d ' ' -f 1 >> "$OUT_DIR/file_caps_adm.txt"
+mkdir "$OUT_DIR/binaries_admin_cap/"
+while read -r; do
+  fn="$REPLY"
+  [ -z "$fn" ] && continue
+  cp --backup=numbered -t "$OUT_DIR/binaries_admin_cap/" "$fn"
+  md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
+done <"$OUT_DIR/file_caps_adm.txt"
+rm -f "$OUT_DIR/file_caps_adm.txt"
 echo 'Done!'
 
 echo 'Copying preload libraries...'
