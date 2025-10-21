@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251020'
+TOOL_VERSION='20251021'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -619,8 +619,8 @@ done <"$OUT_DIR/file_suid_sgid.txt"
 echo 'Done!'
 
 echo 'Copying files with setuid/setgid/sysadm/bpf capability...'
-cat "$OUT_DIR/file_caps.txt" | grep -E ' (cap_set.id|cap_sys_adm|cap_bpf)=ep' | cut -d ' ' -f 1 > "$OUT_DIR/file_caps_adm.txt"
-cat "$OUT_DIR/file_caps.txt" | grep -E '(,| )(cap_set.id|cap_sys_adm|cap_bpf)(,[a-z0-9_]+)+=ep' | cut -d ' ' -f 1 >> "$OUT_DIR/file_caps_adm.txt"
+cat "$OUT_DIR/file_caps.txt" | grep -E ' (cap_set.id|cap_sys_admin|cap_bpf)=ep' | cut -d ' ' -f 1 > "$OUT_DIR/file_caps_adm.txt"
+cat "$OUT_DIR/file_caps.txt" | grep -E '(,| )(cap_set.id|cap_sys_admin|cap_bpf)(,[a-z0-9_]+)+=ep' | cut -d ' ' -f 1 >> "$OUT_DIR/file_caps_adm.txt"
 mkdir "$OUT_DIR/binaries_admin_cap/"
 while read -r; do
   fn="$REPLY"
