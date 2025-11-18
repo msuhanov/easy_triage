@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251118'
+TOOL_VERSION='20251118-2'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -97,6 +97,7 @@ if [ -n "$latest_core" ]; then # If there is a core dump, check its encryption s
 	latest_core_enc=$(vmkdump_extract -E /var/core/"$latest_core")
 	latest_core_bin=$(vmkdump_extract -e /var/core/"$latest_core" | head -n 1) # Also, extract the binary itself.
 	[ "$latest_core_enc" = 'NO' ] || latest_core='' # It is encrypted, bail out.
+	[ -f "$latest_core_bin" ] || latest_core_bin='' # No such a file, skip it.
 fi
 
 if [ -n "$latest_core" ]; then
