@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251014'
+TOOL_VERSION='20251118'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -87,10 +87,37 @@ echo '===== ACCEPTANCE:' >> triage_results.txt
 esxcli software acceptance get >> triage_results.txt
 echo '===== SSH KEYS:' >> triage_results.txt
 esxcli system ssh key list >> triage_results.txt
+echo '===== CORE DUMPS:' >> triage_results.txt
+ls -lht /var/core/ >> triage_results.txt
+
+# These core dumps can be encrypted (which isn't supported here), but many real-world configurations leave them unencrypted.
+# We search for suspicious core dumps only (from 'vmx' and 'hostd' which deal with VM-controlled data, and also from 'sshd')...
+latest_core=$(ls -t /var/core/ | grep -E 'vmx|hostd|sshd' | head -n 1)
+if [ -n "$latest_core" ]; then # If there is a core dump, check its encryption status.
+	latest_core_enc=$(vmkdump_extract -E /var/core/"$latest_core")
+	latest_core_bin=$(vmkdump_extract -e /var/core/"$latest_core" | head -n 1) # Also, extract the binary itself.
+	[ "$latest_core_enc" = 'NO' ] || latest_core='' # It is encrypted, bail out.
+fi
+
+if [ -n "$latest_core" ]; then
+	echo 'Found a suspicious core dump...'
+	echo " /var/core/$latest_core"
+	[ -n "$latest_core_bin" ] && echo " crashed binary: $latest_core_bin"
+	echo ' (Going to collect those...)'
+fi
+
 echo 'Compressing text results...'
 gzip triage_results.txt
 echo 'Collecting interesting files...'
-tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/
+if [ -n "$latest_core" ]; then
+	if [ -n "$latest_core_bin" ]; then
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ /var/core/"$latest_core" "$latest_core_bin"
+	else
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ /var/core/"$latest_core"
+	fi
+else
+	tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/
+fi
 echo 'Done!'
 echo 'triage_results.txt.gz'
 echo 'triage_files.tgz'
