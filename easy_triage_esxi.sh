@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251118-2'
+TOOL_VERSION='20251124'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -87,6 +87,8 @@ echo '===== ACCEPTANCE:' >> triage_results.txt
 esxcli software acceptance get >> triage_results.txt
 echo '===== SSH KEYS:' >> triage_results.txt
 esxcli system ssh key list >> triage_results.txt
+echo '===== BMC:' >> triage_results.txt
+localcli hardware ipmi bmc get  >> triage_results.txt
 echo '===== CORE DUMPS:' >> triage_results.txt
 ls -lht /var/core/ >> triage_results.txt
 
