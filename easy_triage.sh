@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251021'
+TOOL_VERSION='20251201'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -412,6 +412,17 @@ if [ $? -eq 0 ]; then
     docker container inspect "$cn" 1> "$OUT_DIR/logs_docker/$cn.insp"
   done <"$OUT_DIR/docker_containers.txt"
 fi
+
+if [ -f /var/log/vmware/messages ]; then
+  echo ' also, from vCenter...'
+  # Logs from /var/log/audit/ ('sshinfo' and 'sso-events/') are already copied...
+  mkdir "$OUT_DIR/vcenter_sso/" && cp -n -R -t "$OUT_DIR/vcenter_sso/" /var/log/vmware/sso/
+  mkdir "$OUT_DIR/vcenter_vpx/" && cp -n -R -t "$OUT_DIR/vcenter_vpx/" /var/log/vmware/vpx/
+  mkdir "$OUT_DIR/vcenter_vsphere-ui/" && cp -n -R -t "$OUT_DIR/vcenter_vsphere-ui/" /var/log/vmware/vsphere-ui/
+  mkdir "$OUT_DIR/vcenter_syslog/" && cp -n -R -t "$OUT_DIR/vcenter_syslog/" /var/log/vmware/syslog/
+  mkdir "$OUT_DIR/vcenter_messages/" && cp -n -R -t "$OUT_DIR/vcenter_messages/" /var/log/vmware/messages*
+  mkdir "$OUT_DIR/vcenter_procstate/" && cp -n -R -t "$OUT_DIR/vcenter_procstate/" /var/log/vmware/procstate*
+fi
 echo 'Done!'
 
 echo -n 'Collecting timeline... / '
@@ -470,6 +481,8 @@ cat /etc/profile 1>"$OUT_DIR/etc_profile.txt" 2>/dev/null
 cat /etc/bash.bashrc 1>"$OUT_DIR/etc_bash_bashrc.txt" 2>/dev/null
 cat /etc/bashrc 1>"$OUT_DIR/etc_bashrc.txt" 2>/dev/null
 cat /root/.bashrc 1>"$OUT_DIR/root_bashrc.txt" 2>/dev/null
+cat /home/bitrix/.bashrc 1>"$OUT_DIR/bitrix_bashrc.txt" 2>/dev/null
+cat /home/ubuntu/.bashrc 1>"$OUT_DIR/ubuntu_bashrc.txt" 2>/dev/null
 cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 
