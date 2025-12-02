@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20250925'
+TOOL_VERSION='20251202'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -310,7 +310,7 @@ rm -f "$temp_file"
 echo 'Done!'
 
 echo 'Checking integrity of packages...'
-freebsd_version_supported=$(uname -U | grep -E '^(10|11|12|13|14|15|16)' >/dev/null 2>/dev/null)
+freebsd_version_supported=$(uname -U | grep -E '^(10|11|12|13|14|15|16)' 2>/dev/null)
 if [ -n "$freebsd_version_supported" ]; then # On very old versions of FreeBSD (<= 9), 'pkg -N' can wait for user input...
   pkg -N >> "$OUT_DIR"/pkg-bootstrapped.txt 2>> "$OUT_DIR"/pkg-bootstrapped.txt
   [ $? -eq 0 ] && pkg check -a -s 2>"$OUT_DIR"/pkg-check-a-s.txt # The 'pkg' command, when not bootstrapped, can block the execution!
