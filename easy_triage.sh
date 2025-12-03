@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251201'
+TOOL_VERSION='20251203'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -43,6 +43,9 @@ HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|p
 
 # Regular expression (grep -E, note the missing -i) to examine .so files:
 LIBRARY_REGEX='base64_decode\(|/var/www/html/|/proc/%s/stat|/proc/net/tcp'
+
+# Regular expression (grep -Ei) to examine .desktop files:
+DESKTOP_REGEX='exec=.*(base64|curl|wget|/dev/tcp|/dev/udp|python|perl)'
 
 # Syscall filters (strace -e):
 STRACE_FILTER='connect,bind,listen,accept,getpeername'
@@ -356,6 +359,7 @@ for i in $(echo /sys/devices/virtual/dmi/id/*); do
   cat $i 1>"$OUT_DIR/sys_dmi/$j.txt"
 done
 
+echo "$XDG_CURRENT_DESKTOP" 1>"$OUT_DIR/xdg_current_desktop.txt"
 echo 'Done!'
 
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
@@ -846,6 +850,10 @@ echo 'Done!'
 echo 'Scanning for XDG autostart files...'
 find /home/*/ /root/ -xdev -maxdepth 5 -path '*/.config/autostart/*.desktop' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/xdg_autostart.txt"
 find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/.config/autostart/*.desktop' -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/xdg_autostart.txt"
+echo 'Done!'
+
+echo 'Scanning for suspicious .desktop files...'
+find /home/*/ -xdev -maxdepth 5 -name '*.desktop' -type f -exec grep -EiaH -B 8 -A 8 "$DESKTOP_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/desktop_suspicious.txt"
 echo 'Done!'
 
 echo 'Running lsof...'
