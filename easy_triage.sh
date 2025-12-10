@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251203'
+TOOL_VERSION='20251210'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -23,17 +23,18 @@ OUT_DIR='artifact_collection_'"$HOSTNAME_SANE"
 OUT_FILE='artifact_collection_'"$HOSTNAME_SANE"'.bin'
 
 # Triage options, any combination of:
-# - 'swap' (carve interesting strings from swap, currently this is limited to the "Accepted (password|...) from" strings);
+# - 'swap' (carve interesting strings from swap, currently this is limited to the "Accepted (password|...) from" strings and the session messages from Teleport);
 # - 'orphan' (dump deleted but running executables, both from the disk and from the memory);
 # - 'internet' (check Internet connectivity, get external IP address through 'icanhazip.com', and get date & time from online server);
 # - 'rootkit' (search for hidden PIDs by scanning the /proc directory, trying to locate PIDs hidden from the readdir()-like calls;
 #              also, search for common file name patterns hidden with userspace rootkits);
 # - 'qemu' (find a suspicious "headless" QEMU VM, if any, and copy its virtual disk, writing at most 64 MiB of its data);
 # - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits);
-# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 3-4 minutes; the 'strace' package will be installed if needed);
-# - 'libscan' (scan .so libraries for malware, using built-in signatures).
+# - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 3-4 minutes; the 'strace' package will be installed if needed) - DISABLED BY DEFAULT;
+# - 'libscan' (scan .so libraries for malware, using built-in signatures);
+# - 'httplogs' (copy web/proxy server access logs, if found; warning: this could result in archiving hundreds of gigabytes of log files) - DISABLED BY DEFAULT.
 # (Their order does not matter.)
-TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc libscan strace'
+TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc libscan'
 
 # Refuse to run if there is not enough disk space:
 FREESPACE_THRESHOLD=2097152 # In 1024-byte blocks.
@@ -160,6 +161,27 @@ if [ $? -ne 0 ]; then # Something went wrong, refuse to run...
   exit 1
 fi
 
+target_fs_type=$(findmnt -T "$OUT_DIR" -n -r -o FSTYPE 2>/dev/null)
+if [ -n "$target_fs_type" ]; then
+  echo "Target file system type is $target_fs_type"
+
+  # Check the target file system type.
+  # - FAT12/16/32 ('vfat') aren't supported, because of the file size limit (4 GiB minus 1 byte).
+  # - Also, FAT12/16/32 and exFAT aren't supported, because there are no sparse files (this feature is required to copy the /var/log/lastlog file).
+  # - NTFS (as implemented by 'ntfs3') isn't supported, because of known file system corruption cases.
+  # - NTFS (as implemented by 'ntfs') isn't supported, because its write support is very limited.
+  # - FUSE is a corner case (its specific limitations are unknown), but we allow it (e.g., 'ntfs-3g' is allowed).
+  # - Other file systems (like Ext4, XFS) are supported and allowed.
+
+  target_fs_type_blocked=$(echo "$target_fs_type" | grep -E '^(vfat|exfat|ntfs3|ntfs)')
+  if [ -n "$target_fs_type_blocked" ]; then
+    echo "Target file system (in CWD) is not supported, refusing to run :-("
+    echo 'Try to change CWD to something different from FAT/exFAT/NTFS...'
+    rmdir "$OUT_DIR"
+    exit 1
+  fi
+fi
+
 [ -n "$temp_file" -a -r "$temp_file" ] && cat "$temp_file" | gzip -4 1>"$OUT_DIR/timeline_old.csv.gz"
 [ -n "$temp_file" -a -r "$temp_file" ] && rm -f "$temp_file" && echo 'Saved the old timeline!'
 
@@ -235,6 +257,8 @@ cat /sys/kernel/security/lockdown 1>"$OUT_DIR/kernel_lockdown_status.txt"
 cat /sys/kernel/oops_count 1>"$OUT_DIR/kernel_oops_count.txt"
 cat /sys/kernel/debug/tracing/tracing_on 1>"$OUT_DIR/kernel_tracing_status.txt"
 cat /sys/kernel/debug/tracing/trace | tail -n 8000 | gzip -7 1>"$OUT_DIR/kernel_tracing_trace_first8000lines.txt.gz"
+
+sysctl net 1>"$OUT_DIR/sysctl_net.txt" 2>/dev/null
 
 cat /proc/sys/kernel/tainted 1>"$OUT_DIR/kernel_tainted_code.txt"
 tainted_code=$(cat "$OUT_DIR/kernel_tainted_code.txt")
@@ -365,12 +389,14 @@ echo 'Done!'
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
 echo 'Copying important logs...'
 mkdir "$OUT_DIR/logs_audit/" && cp -n -R -t "$OUT_DIR/logs_audit/" /var/log/audit/
-mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp /var/log/wtmp2* /var/log/wtmp.* /var/log/wtmp-* /var/log/wtmp_* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/cron* /var/log/dmesg* /var/log/sudo.log*
+mkdir "$OUT_DIR/logs/" && cp -n -R -t "$OUT_DIR/logs/" /var/log/auth* /var/log/secure* /var/log/wtmp /var/log/wtmp2* /var/log/wtmp.* /var/log/wtmp-* /var/log/wtmp_* /var/log/btmp* /var/log/syslog* /var/log/kern* /var/log/messages* /var/log/firewall* /var/log/auditd.log* /var/log/audit.log* /var/log/boot.log* /var/log/dpkg.log* /var/log/yum.log* /var/log/dnf* /var/log/*cron* /var/log/dmesg* /var/log/sudo.log*
 mkdir "$OUT_DIR/logs_apt/" && cp -n -R -t "$OUT_DIR/logs_apt/" /var/log/apt/
 mkdir "$OUT_DIR/logs_atop/" && cp -n -R -t "$OUT_DIR/logs_atop/" /var/log/atop/
 mkdir "$OUT_DIR/logs_sudo/" && cp -n -R -t "$OUT_DIR/logs_sudo/" /var/log/sudo-io/
 mkdir "$OUT_DIR/logs_wtmpdb/" && cp -n -R -t "$OUT_DIR/logs_wtmpdb/" /var/lib/wtmpdb/
 mkdir "$OUT_DIR/logs_lastlog2/" && cp -n -R -t "$OUT_DIR/logs_lastlog2/" /var/lib/lastlog/
+mkdir "$OUT_DIR/logs_citrix_icaclient/" && cp -n -R -t "$OUT_DIR/logs_citrix_icaclient/" /var/log/citrix/ICAClient*
+mkdir "$OUT_DIR/logs_anyconnect/" && cp -n -R -t "$OUT_DIR/logs_anyconnect/" /var/log/anyconnect/
 echo ' also, current dmesg -T'
 dmesg -T -P 2>/dev/null 1>"$OUT_DIR/dmesg-T.txt" || dmesg -T 1>"$OUT_DIR/dmesg-T.txt"
 echo ' also, journalctl -a -b all'
@@ -448,7 +474,7 @@ fi
 # Scan through file descriptors and executables that are marked as deleted (but still present in the file system, because they are open).
 # The timestamps are taken from symlink targets.
 echo -n ' unlinked_but_open '
-find /proc/ -mindepth 2 -maxdepth 3 \( ! -name 'fd' -prune \) \( -path '*/fd/*' -o -name 'exe' \) -type l -printf '%i,%n,%p -> %l,' -exec stat -L --printf '%x,%y,%z,%w,%U,%G,%A,%s\n' {} \; 2> /dev/null | grep -F '(deleted)' 1>> "$OUT_DIR/timeline.csv"
+find /proc/ -mindepth 2 -maxdepth 3 \( ! -name 'fd' -prune \) \( -path '*/fd/*' -o -name 'exe' \) -type l -printf '%i,%n,%p -> %l,' -exec stat -L --printf '%x,%y,%z,%w,%U,%G,%A,%s\n' {} \; 2> /dev/null | grep -Fa '(deleted)' 1>> "$OUT_DIR/timeline.csv"
 
 gzip -2 "$OUT_DIR/timeline.csv"
 echo ' Done!'
@@ -655,6 +681,7 @@ mkdir "$OUT_DIR/binaries_preload/"
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
+  echo "$fn"
   echo " note: found $fn (ld.so.preload)"
   fn2=$(resolve_lib "$fn")
   [ -z "$fn2" ] && continue
@@ -663,7 +690,7 @@ while read -r; do
 done <"$OUT_DIR/etc_ld_so_preload.txt"
 
 # Use the environment variable...
-cat "$OUT_DIR"/environ.bin* | tr '\0' '\n' | grep -E '^LD_PRELOAD=' | cut -d '=' -f 2- | tr ':' '\n' | tr ' ' '\n' | grep -Ev '^$' 1>"$OUT_DIR/environ_ld_preload.txt"
+cat "$OUT_DIR"/environ.bin* | tr '\0' '\n' | grep -E '^LD_PRELOAD=' | cut -d '=' -f 2- | tr ':' '\n' | tr ' ' '\n' | grep -Ev '^$' | sort | uniq 1>"$OUT_DIR/environ_ld_preload.txt"
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
@@ -676,7 +703,7 @@ done <"$OUT_DIR/environ_ld_preload.txt"
 rm -f "$OUT_DIR/environ_ld_preload.txt"
 
 # From systemd...
-find "$OUT_DIR"/systemd_* -type f -name 'local.conf' -print0 | xargs -I '{}' -0 grep -Eo 'LD_PRELOAD( )*=( )*.+' '{}' | sed -e 's/"//g' -e "s/'//g" | cut -d '=' -f 2- | tr ':' '\n' 1>"$OUT_DIR/systemd_ld_preload.txt"
+find "$OUT_DIR"/systemd_* -type f -name 'local.conf' -print0 | xargs -I '{}' -0 grep -Eoa 'LD_PRELOAD( )*=( )*.+' '{}' | sed -e 's/"//g' -e "s/'//g" | cut -d '=' -f 2- | tr ':' '\n' | sort | uniq 1>"$OUT_DIR/systemd_ld_preload.txt"
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
@@ -856,6 +883,32 @@ echo 'Scanning for suspicious .desktop files...'
 find /home/*/ -xdev -maxdepth 5 -name '*.desktop' -type f -exec grep -EiaH -B 8 -A 8 "$DESKTOP_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/desktop_suspicious.txt"
 echo 'Done!'
 
+# Search for web/proxy server access (and, thus, error) logs in currently opened files, using a typical file name pattern ('access.{0,2}log', 'proxy.*log'), and excluding unlikely candidates.
+# Paths that were examined before (e.g., /var/log/vmware/) are excluded too...
+# Finally, each candidate file has its data checked using common strings (e.g., 'GET /', 'POST /').
+# Then, its containing directory is archived, if requested (see the 'httplogs' option).
+
+echo 'Searching for web/proxy server access & error logs...'
+find /proc/ -mindepth 2 -maxdepth 3 \( ! -name 'fd' -prune \) -path '*/fd/*' -type l -printf '%l\n' 2>/dev/null | grep -Eva '^/memfd:' | grep -Fva '(deleted)' | grep -Eva '^-' | grep -Ea '(access.{0,2}log|proxy.*log)' | grep -Eva '^(/var/log/(vmware.*|audit.*|journal)/|/run/log/journal/|/run/journal/)' | sort | uniq 1>> "$OUT_DIR/websrv_logs_found_by_filename.txt"
+cat "$OUT_DIR/websrv_logs_found_by_filename.txt" | xargs -I '{}' grep -El '(GET|POST|PUT|HEAD) /' '{}' 1>> "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt"
+cat "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt" | xargs -I '{}' dirname '{}' | sort | uniq 1>> "$OUT_DIR/websrv_logs_found.txt"
+rm -f "$OUT_DIR/websrv_logs_found_by_filename.txt" "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt"
+logs_found=$(cat "$OUT_DIR/websrv_logs_found.txt" | tr '\n' ' ')
+if [ -n "$logs_found" ]; then
+  echo " found: $logs_found"
+  cat "$OUT_DIR/websrv_logs_found.txt" | xargs -I '{}' du -sh '{}' 1>> "$OUT_DIR/websrv_logs_size.txt"
+fi
+
+do_httplogs=$(echo "$TRIAGE_OPTIONS" | grep -wo 'httplogs')
+if [ "$do_httplogs" = 'httplogs' -a -s "$OUT_DIR/websrv_logs_found.txt" ]; then
+  echo 'Archiving web/proxy server access logs...'
+  echo 'To do:'
+  cat "$OUT_DIR/websrv_logs_size.txt"
+  tar cvzf "$OUT_DIR/websrv_logs.tgz" -T "$OUT_DIR/websrv_logs_found.txt"
+  echo 'Archived!'
+fi
+echo 'Done!'
+
 echo 'Running lsof...'
 lsof -nPl 2>/dev/null | gzip -3 1>"$OUT_DIR/lsof-nPl.txt.gz"
 echo 'Done!'
@@ -906,7 +959,7 @@ locate '' 2>/dev/null | gzip -4 1>> "$OUT_DIR/locate_paths.txt.gz"
 echo 'Done!'
 
 echo 'Searching for deleted but running executables...'
-find /proc -maxdepth 2 -path '*/exe' -printf '%p\t' -exec bash -c 'readlink -n {} ; echo' \; 2>/dev/null | grep -F '(deleted)' 1>> "$OUT_DIR/orphan_executables.txt"
+find /proc -maxdepth 2 -path '*/exe' -printf '%p\t' -exec bash -c 'readlink -n {} ; echo' \; 2>/dev/null | grep -Fa '(deleted)' 1>> "$OUT_DIR/orphan_executables.txt"
 cat "$OUT_DIR/orphan_executables.txt"
 echo 'Done!'
 
@@ -1423,7 +1476,7 @@ if [ "$do_strace" = 'strace' ]; then
   # And some running programs that (probably) are not from packages. 2 processes.
   # Stick to "simple" names (containing only alphanumeric characters and any of these: '_', '.', '-').
   # Also, exclude ambiguous names ('COMMAND') and, hopefully, VMware processes (start with 'vm') and QEMU processes ('qemu').
-  pids3=$(find "$OUT_DIR/binaries_not_from_packages/" -type f -printf '%f\n' | grep -E '^([[:alnum:]]|[_\.-]){4,}$' | grep -Ev '(^COMMAND$|^vm|^qemu)' | sed -e 's/\./\\./g' | xargs -I '{}' bash -c "ps -e -o pid,comm -w -w | grep -E ' {}$'" | head -n 2 | awk '{ print $1 }' | tr '\n' ',')
+  pids3=$(find "$OUT_DIR/binaries_not_from_packages/" -type f -printf '%f\n' | grep -Ea '^([[:alnum:]]|[_\.-]){4,}$' | grep -Ev '(^COMMAND$|^vm|^qemu)' | sed -e 's/\./\\./g' | xargs -I '{}' bash -c "ps -e -o pid,comm -w -w | grep -E ' {}$'" | head -n 2 | awk '{ print $1 }' | tr '\n' ',')
 
   pids=$(echo "$pids1,$pids2,$pids3" | sed -e 's/,,/,/g' -e 's/^,//g' -e 's/,$//g')
 
@@ -1462,9 +1515,9 @@ if [ "$do_swap" = 'swap' ]; then
 
   if [ -n "$swap_dev" -a -r "$swap_dev" ]; then
     printf '%s\n' " $swap_dev"
-    # This will never read more than 7 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
+    # This will never read more than 8 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
     # Use direct I/O to reduce the cache usage. If that mode is unavailable, bail out!
-    dd if="$swap_dev" bs=1024 iflag=direct count=7340032 2>/dev/null | $best_strings -n 10 | grep -A 5 -B 5 'Accepted ' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
+    dd if="$swap_dev" bs=1024 iflag=direct count=8388608 2>/dev/null | $best_strings -n 10 | grep -E -A 5 -B 5 '(Accepted )|(session\..* addr\.remote:)|(session.* teleportUser:)' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
   fi
   echo 'Done!'
 fi
