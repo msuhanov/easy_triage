@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251210'
+TOOL_VERSION='20251210-2'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -681,7 +681,6 @@ mkdir "$OUT_DIR/binaries_preload/"
 while read -r; do
   fn="$REPLY"
   [ -z "$fn" ] && continue
-  echo "$fn"
   echo " note: found $fn (ld.so.preload)"
   fn2=$(resolve_lib "$fn")
   [ -z "$fn2" ] && continue
