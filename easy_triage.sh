@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251210-2'
+TOOL_VERSION='20251215'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -384,6 +384,38 @@ for i in $(echo /sys/devices/virtual/dmi/id/*); do
 done
 
 echo "$XDG_CURRENT_DESKTOP" 1>"$OUT_DIR/xdg_current_desktop.txt"
+echo "$XDG_SESSION_TYPE" 1>"$OUT_DIR/xdg_session_type.txt"
+
+# Scan for X11 displays, get their window layout, and obtain screenshots...
+find /proc/ -mindepth 2 -maxdepth 2 -name 'environ' -exec grep -Fwl 'XDG_SESSION_TYPE=x11' {} \; 2>/dev/null >"$OUT_DIR/env_session_x11.txt"
+while read -r; do
+  env_fn="$REPLY"
+  env_session=$(cat "$env_fn" | tr '\0' '\n')
+  env_display=$(printf "%s\n" "$env_session" | grep -E -m 1 '^DISPLAY=' | cut -d '=' -f 2-)
+  env_xauth=$(printf "%s\n" "$env_session" | grep -E -m 1 '^XAUTHORITY=' | cut -d '=' -f 2-)
+
+  [ -n "$env_display" ] || continue
+  [ -n "$env_xauth" ] || continue
+  [ -f "$OUT_DIR"/x11_displays/"$env_display"_xwininfo.txt ] && continue # Skip displays that were processed.
+
+  echo "Found X11 display: $env_display, trying to fetch info"
+  mkdir "$OUT_DIR/x11_displays/" 2>/dev/null
+
+  which xwininfo 1>/dev/null 2>/dev/null
+  if [ $? -eq 0 ]; then
+    XAUTHORITY="$env_xauth" xwininfo -root -tree -all -display "$env_display" 1>"$OUT_DIR"/x11_displays/"$env_display"_xwininfo.txt
+  fi
+
+  which xwd 1>/dev/null 2>/dev/null
+  if [ $? -eq 0 ]; then
+    XAUTHORITY="$env_xauth" xwd -out "$OUT_DIR"/x11_displays/"$env_display"_screenshot_1 -root -screen -display "$env_display"
+    gzip -9 "$OUT_DIR"/x11_displays/"$env_display"_screenshot_1
+    XAUTHORITY="$env_xauth" xwd -out "$OUT_DIR"/x11_displays/"$env_display"_screenshot_2 -root -display "$env_display"
+    gzip -9 "$OUT_DIR"/x11_displays/"$env_display"_screenshot_2
+  fi
+done <"$OUT_DIR/env_session_x11.txt"
+rm -f "$OUT_DIR/env_session_x11.txt"
+
 echo 'Done!'
 
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
@@ -488,7 +520,7 @@ fi
 
 echo 'Copying recent crash/core dumps...'
 mkdir "$OUT_DIR/crash_and_core/"
-find /var/crash/ /var/lib/systemd/coredump/ -type f -mtime -61 -size -45M -print0 1>>"$OUT_DIR/recent_crash_dumps.txt"
+find /var/crash/ /var/lib/systemd/coredump/ -type f -mtime -61 -size -55M -print0 1>>"$OUT_DIR/recent_crash_dumps.txt"
 cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' cp --backup=numbered -t "$OUT_DIR/crash_and_core/" '{}'
 cat "$OUT_DIR/recent_crash_dumps.txt" | xargs -0 -I '{}' md5sum '{}' 1>> "$OUT_DIR/files_copied.md5"
 rm -f "$OUT_DIR/recent_crash_dumps.txt"
@@ -504,6 +536,8 @@ echo 'Collecting possible persistence info...'
 atq 1>"$OUT_DIR/atq.txt" 2>/dev/null
 crontab -l 1>"$OUT_DIR/crontab-l.txt" 2>/dev/null
 cat /etc/rc.local 1>"$OUT_DIR/etc_rc_local.txt" 2>/dev/null
+cat /etc/sysconfig/init 1>"$OUT_DIR/etc_sysconfig_init.txt" 2>/dev/null
+cat /etc/sysconfig/sshd 1>"$OUT_DIR/etc_sysconfig_sshd.txt" 2>/dev/null
 ls -la /etc/init.d/ /etc/rc*.d/ 1>"$OUT_DIR/etc_rc_scripts.txt" 2>/dev/null
 cat /etc/ld.so.preload 1>"$OUT_DIR/etc_ld_so_preload.txt" 2>/dev/null
 cat /proc/self/environ 1>"$OUT_DIR/environ.bin" 2>/dev/null
@@ -720,13 +754,13 @@ echo 'Copying segfaulting libraries (observed on last 2 boots)...'
 mkdir "$OUT_DIR/binaries_segfault/"
 
 # This boot.
-grep -F 'segfault at ' "$OUT_DIR/dmesg-T.txt" | grep -Eo '[[:alnum:]]+\.so(\.[[:digit:]]{1,3}){0,1}' 1>"$OUT_DIR/segfault_libs.txt"
+grep -F 'segfault at ' "$OUT_DIR/dmesg-T.txt" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>"$OUT_DIR/segfault_libs.txt"
 
 # Previous boot.
-grep -F 'segfault at ' "$OUT_DIR/logs/dmesg.0" | grep -Eo '[[:alnum:]]+\.so(\.[[:digit:]]{1,3}){0,1}' 1>>"$OUT_DIR/segfault_libs.txt"
+grep -F 'segfault at ' "$OUT_DIR/logs/dmesg.0" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
 
 # Previous boot (the same one as above).
-journalctl -b -1 | grep -F 'segfault at ' | grep -Eo '[[:alnum:]]+\.so(\.[[:digit:]]{1,3}){0,1}' 1>>"$OUT_DIR/segfault_libs.txt"
+journalctl -b -1 | grep -F 'segfault at ' | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
 
 cat "$OUT_DIR/segfault_libs.txt" | grep -Ev '^libc\.so' | sort -T "$OUT_DIR" | uniq | head -n 6 1>>"$OUT_DIR/segfault_libs_.txt" # Limit the number of libraries, just in case...
 mv "$OUT_DIR/segfault_libs_.txt" "$OUT_DIR/segfault_libs.txt"
@@ -842,6 +876,8 @@ find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '.lessh
 echo 'Done!'
 
 echo 'Scanning for SSH authorized keys...'
+grep -FriaH authorizedkeysfile /etc/ssh/ 2>/dev/null 1>> "$OUT_DIR/ssh_auth_keys_locations.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/etc/ssh' -type d -exec grep -FriaH authorizedkeysfile '{}' \; 1>> "$OUT_DIR/ssh_auth_keys_locations.txt"
 find /home/*/ /root/ -xdev -maxdepth 3 -path '*/.ssh/authorized_keys*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_auth_keys.txt"
 find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -path '*/.ssh/authorized_keys*' -type f -exec grep -EaH '^[^#]' {} \; 2>/dev/null 1>> "$OUT_DIR/ssh_auth_keys.txt"
 echo 'Done!'
