@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251124'
+TOOL_VERSION='20251222'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -40,6 +40,8 @@ echo '===== VM LIST:' >> triage_results.txt
 esxcli vm process list >> triage_results.txt
 echo '===== FILE SYSTEMS:' >> triage_results.txt
 esxcli storage filesystem list >> triage_results.txt
+echo '===== DISK USAGE:' >> triage_results.txt
+df -h >> triage_results.txt
 echo '===== CORE DUMPS CONFIGURED:' >> triage_results.txt
 esxcli system coredump file get >> triage_results.txt
 echo '===== EXECUTION OF 3RD-PARTY BINARIES:' >> triage_results.txt
@@ -93,13 +95,18 @@ echo '===== CORE DUMPS:' >> triage_results.txt
 ls -lht /var/core/ >> triage_results.txt
 
 # These core dumps can be encrypted (which isn't supported here), but many real-world configurations leave them unencrypted.
-# We search for suspicious core dumps only (from 'vmx' and 'hostd' which deal with VM-controlled data, and also from 'sshd')...
+# We search for suspicious core dumps only (from 'vmx' and 'hostd' which deal with VM-controlled data, and also from 'sshd', if any)...
 latest_core=$(ls -t /var/core/ | grep -E 'vmx|hostd|sshd' | head -n 1)
 if [ -n "$latest_core" ]; then # If there is a core dump, check its encryption status.
 	latest_core_enc=$(vmkdump_extract -E /var/core/"$latest_core")
 	latest_core_bin=$(vmkdump_extract -e /var/core/"$latest_core" | head -n 1) # Also, extract the binary itself.
 	[ "$latest_core_enc" = 'NO' ] || latest_core='' # It is encrypted, bail out.
 	[ -f "$latest_core_bin" ] || latest_core_bin='' # No such a file, skip it.
+
+	mkdir triage_cores
+	cd triage_cores
+	vmkdump_extract -x /var/core/"$latest_core"
+	cd ..
 fi
 
 if [ -n "$latest_core" ]; then
@@ -114,13 +121,15 @@ gzip triage_results.txt
 echo 'Collecting interesting files...'
 if [ -n "$latest_core" ]; then
 	if [ -n "$latest_core_bin" ]; then
-		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ /var/core/"$latest_core" "$latest_core_bin"
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_cores/ "$latest_core_bin"
 	else
-		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ /var/core/"$latest_core"
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_cores/
 	fi
 else
 	tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/
 fi
+[ -d triage_cores ] && rm -fr triage_cores/
+
 echo 'Done!'
 echo 'triage_results.txt.gz'
 echo 'triage_files.tgz'
