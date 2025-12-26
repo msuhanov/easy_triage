@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251222'
+TOOL_VERSION='20251226'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -105,8 +105,10 @@ if [ -n "$latest_core" ]; then # If there is a core dump, check its encryption s
 
 	mkdir triage_cores
 	cd triage_cores
-	vmkdump_extract -x /var/core/"$latest_core"
-	cd ..
+	if [ $? -eq 0 ]; then
+		vmkdump_extract -x /var/core/"$latest_core"
+		cd ..
+	fi
 fi
 
 if [ -n "$latest_core" ]; then
