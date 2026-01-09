@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251226'
+TOOL_VERSION='20260109'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -79,7 +79,8 @@ stat /bootbank/state.tgz >> triage_results.txt
 tar -tvf /bootbank/state.tgz >> triage_results.txt
 echo '===== TIMELINE (/ + /tmp/ + /var/tmp/ + /dev/shm/ + /var/lib/vmware/osdata/):' >> triage_results.txt
 echo 'filename,size,user,group,type,perms,inode,hardlinks,access,modification,change' >> triage_results.txt
-find / /tmp/ /var/tmp/ /dev/shm/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
+# Some directories will be visited twice, but we want to collect as much info as possible in the most portable way...
+find / /tmp/ /var/tmp/ /var/run/ /dev/shm/ /var/lib/vmware/osdata/ -xdev -exec stat -c '%N,%s,%u,%g,%F,%A,%i,%h,%x,%y,%z' {} \; >> triage_results.txt
 echo '===== END OF TIMELINE' >> triage_results.txt
 echo '===== VIB LIST:' >> triage_results.txt
 esxcli software vib list >> triage_results.txt
@@ -93,6 +94,29 @@ echo '===== BMC:' >> triage_results.txt
 localcli hardware ipmi bmc get  >> triage_results.txt
 echo '===== CORE DUMPS:' >> triage_results.txt
 ls -lht /var/core/ >> triage_results.txt
+echo '===== UNUSUAL EXECUTABLES IN /VAR:' >> triage_results.txt
+# This is an ugly hack to scan for ELF executables...
+find /var/empty/ /var/lock/ /var/opt/ /var/run/ -type f -maxdepth 1 -exec grep -FHnom1 $'\x7FELF' {} \; | grep -F $':1:\x7FELF' | sed -e $'s/:1:\x7FELF$//g' > triage_elfs.txt
+cat triage_elfs.txt >> triage_results.txt
+
+# Copy at most two suspicious ELF binaries...
+if [ -s triage_elfs.txt ]; then
+	cat triage_elfs.txt | head -n 2 > triage_elfs_limit.txt
+	mkdir triage_binaries
+
+	copied=''
+	while read -r; do
+		copied='yes'
+		cp "$REPLY" triage_binaries/
+	done <triage_elfs_limit.txt
+
+	if [ -z "$copied" ]; then # Fall back to something more portable and error-prone...
+		while read -r elf; do
+			cp "$elf" triage_binaries/
+		done <triage_elfs_limit.txt
+	fi
+fi
+rm -f triage_elfs.txt triage_elfs_limit.txt
 
 # These core dumps can be encrypted (which isn't supported here), but many real-world configurations leave them unencrypted.
 # We search for suspicious core dumps only (from 'vmx' and 'hostd' which deal with VM-controlled data, and also from 'sshd', if any)...
@@ -123,14 +147,15 @@ gzip triage_results.txt
 echo 'Collecting interesting files...'
 if [ -n "$latest_core" ]; then
 	if [ -n "$latest_core_bin" ]; then
-		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_cores/ "$latest_core_bin"
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_cores/ "$latest_core_bin"
 	else
-		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_cores/
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_cores/
 	fi
 else
-	tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/
+	tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/
 fi
 [ -d triage_cores ] && rm -fr triage_cores/
+[ -d triage_binaries ] && rm -fr triage_binaries/
 
 echo 'Done!'
 echo 'triage_results.txt.gz'
