@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20251215'
+TOOL_VERSION='20260116'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -460,6 +460,7 @@ else
 fi
 
 mkdir "$OUT_DIR/var_spool_mail/" && cp -n -R -t "$OUT_DIR/var_spool_mail/" /var/spool/mail/ 2>/dev/null
+mkdir "$OUT_DIR/var_mail/" && cp -n -R -t "$OUT_DIR/var_mail/" /var/mail/ 2>/dev/null
 
 which docker 1>/dev/null 2>/dev/null
 if [ $? -eq 0 ]; then
@@ -548,6 +549,7 @@ cat /root/.bashrc 1>"$OUT_DIR/root_bashrc.txt" 2>/dev/null
 cat /home/bitrix/.bashrc 1>"$OUT_DIR/bitrix_bashrc.txt" 2>/dev/null
 cat /home/ubuntu/.bashrc 1>"$OUT_DIR/ubuntu_bashrc.txt" 2>/dev/null
 cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
+cat /home/ubuntu/mbox | gzip -9 1>"$OUT_DIR/ubuntu_mbox.txt.gz" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 
 find /proc -mindepth 2 -maxdepth 2 -name 'environ' -type f -exec grep -Fl 'LD_PRELOAD=' {} \; 1>"$OUT_DIR/proc_all_ld_preload.txt" 2>/dev/null
@@ -754,13 +756,16 @@ echo 'Copying segfaulting libraries (observed on last 2 boots)...'
 mkdir "$OUT_DIR/binaries_segfault/"
 
 # This boot.
-grep -F 'segfault at ' "$OUT_DIR/dmesg-T.txt" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>"$OUT_DIR/segfault_libs.txt"
+grep -Fa 'segfault at ' "$OUT_DIR/dmesg-T.txt" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>"$OUT_DIR/segfault_libs.txt"
+grep -Fa 'general protection fault ' "$OUT_DIR/dmesg-T.txt" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
 
 # Previous boot.
-grep -F 'segfault at ' "$OUT_DIR/logs/dmesg.0" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
+grep -Fa 'segfault at ' "$OUT_DIR/logs/dmesg.0" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
+grep -Fa 'general protection fault ' "$OUT_DIR/logs/dmesg.0" | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
 
 # Previous boot (the same one as above).
-journalctl -b -1 | grep -F 'segfault at ' | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
+journalctl -b -1 | grep -Fa 'segfault at ' | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
+journalctl -b -1 | grep -Fa 'general protection fault ' | grep -Eo '[a-zA-Z0-9\.-]+\.so(\.[[:digit:]]{1,6}){0,3}' 1>>"$OUT_DIR/segfault_libs.txt"
 
 cat "$OUT_DIR/segfault_libs.txt" | grep -Ev '^libc\.so' | sort -T "$OUT_DIR" | uniq | head -n 6 1>>"$OUT_DIR/segfault_libs_.txt" # Limit the number of libraries, just in case...
 mv "$OUT_DIR/segfault_libs_.txt" "$OUT_DIR/segfault_libs.txt"
