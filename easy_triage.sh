@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260116'
+TOOL_VERSION='20260120'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -921,6 +921,17 @@ echo 'Done!'
 
 echo 'Scanning for suspicious .desktop files...'
 find /home/*/ -xdev -maxdepth 5 -name '*.desktop' -type f -exec grep -EiaH -B 8 -A 8 "$DESKTOP_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/desktop_suspicious.txt"
+echo 'Done!'
+
+echo 'Scanning for interesting files in .config directories...'
+find /root/.config/ /home/*/.config/ -type f -size -1M \( -iname '*.conf' -o -iname '*.cfg' -o -iname '*.ini' -o -iname '*.json' -o -iname '*.xml' -o -iname '*custom*' \) -print0 1> "$OUT_DIR/config_interesting.txt"
+for dom in /home/*; do
+  [ -d "$dom" ] || continue
+  [ -d "$dom"/.config ] && continue
+  find "$dom"/*/.config/ -type f -size -1M \( -iname '*.conf' -o -iname '*.cfg' -o -iname '*.ini' -o -iname '*.json' -o -iname '*.xml' -o -iname '*custom*' \) -print0 1>> "$OUT_DIR/config_interesting.txt"
+done
+[ -s "$OUT_DIR/config_interesting.txt" ] && tar -czf "$OUT_DIR/config_interesting.tgz" --null -T "$OUT_DIR/config_interesting.txt" >/dev/null 2>/dev/null
+rm -f "$OUT_DIR/config_interesting.txt"
 echo 'Done!'
 
 # Search for web/proxy server access (and, thus, error) logs in currently opened files, using a typical file name pattern ('access.{0,2}log', 'proxy.*log'), and excluding unlikely candidates.
