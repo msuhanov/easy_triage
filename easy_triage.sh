@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260120'
+TOOL_VERSION='20260305'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -213,6 +213,8 @@ fi
 resolvectl status 2>/dev/null 1>"$OUT_DIR/resolvectl-status.txt"
 cat /etc/resolv.conf 1>"$OUT_DIR/etc_resolv_conf.txt"
 cat /etc/hosts 1>"$OUT_DIR/etc_hosts.txt"
+netplan status --all 1>"$OUT_DIR/netplan-status-all.txt"
+netplan status --all --verbose 1>"$OUT_DIR/netplan-status-all-verbose.txt"
 echo 'Done!'
 
 echo 'Collecting process info...'
