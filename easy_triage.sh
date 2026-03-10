@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260305'
+TOOL_VERSION='20260310'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -175,7 +175,7 @@ if [ -n "$target_fs_type" ]; then
 
   target_fs_type_blocked=$(echo "$target_fs_type" | grep -E '^(vfat|exfat|ntfs3|ntfs)')
   if [ -n "$target_fs_type_blocked" ]; then
-    echo "Target file system (in CWD) is not supported, refusing to run :-("
+    echo 'Target file system (in CWD) is not supported, refusing to run :-('
     echo 'Try to change CWD to something different from FAT/exFAT/NTFS...'
     rmdir "$OUT_DIR"
     exit 1
@@ -213,8 +213,15 @@ fi
 resolvectl status 2>/dev/null 1>"$OUT_DIR/resolvectl-status.txt"
 cat /etc/resolv.conf 1>"$OUT_DIR/etc_resolv_conf.txt"
 cat /etc/hosts 1>"$OUT_DIR/etc_hosts.txt"
-netplan status --all 1>"$OUT_DIR/netplan-status-all.txt"
-netplan status --all --verbose 1>"$OUT_DIR/netplan-status-all-verbose.txt"
+
+if [ $EUID -eq 0 ]; then
+  netplan status --all 1>"$OUT_DIR/netplan-status-all.txt"
+  netplan status --all --verbose 1>"$OUT_DIR/netplan-status-all-verbose.txt"
+else # Avoid a GUI elevation request.
+  echo ''
+  echo '(Not root, skip collecting netplan data.)'
+  echo ''
+fi
 echo 'Done!'
 
 echo 'Collecting process info...'
