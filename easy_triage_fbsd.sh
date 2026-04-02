@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260117'
+TOOL_VERSION='20260402'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -342,15 +342,14 @@ echo "$OUT_FILE"
 # So, run it after anything else...
 
 if [ -d /var/nslog ]; then
-  sessions=$(nscli -U %%:.:. show system session 2>/dev/null)
+  OUT_BASE=$(basename "$OUT_FILE" .bin)
+  OUT_FILE2="$OUT_BASE.txt"
 
-  echo "$sessions" | grep -Fw '2)' 1>/dev/null 2>/dev/null
-  if [ $? -eq  0 ]; then # More than one session found.
-    OUT_BASE=$(basename "$OUT_FILE" .bin)
-    OUT_FILE2="$OUT_BASE.txt"
-    echo "$sessions" >> "$OUT_FILE2"
-    echo "$OUT_FILE2"
-  fi
+  nscli -U %%:.:. show system session 2>/dev/null >> "$OUT_FILE2"
+  echo '---' >> "$OUT_FILE2"
+  nscli -U %%:.:. show tcpProfile 2>/dev/null >> "$OUT_FILE2"
+
+  echo "$OUT_FILE2"
 fi
 
 # For NetScaler appliances:
