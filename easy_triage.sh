@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260310'
+TOOL_VERSION='20260407'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -313,7 +313,9 @@ lslogins 1>"$OUT_DIR/lslogins.txt"
 lslogins -f 1>"$OUT_DIR/lslogins-f.txt" 2>/dev/null
 lslogins -L 1>"$OUT_DIR/lslogins-L.txt" 2>/dev/null
 lslogins -a 1>"$OUT_DIR/lslogins-a.txt" 2>/dev/null
-lslogins --output-all --notruncate --raw 1>"$OUT_DIR/lslogins-output-all.txt" 2>/dev/null
+
+# This is known to hang sometimes, producing no output... So, this is disabled now:
+# lslogins --output-all --notruncate --raw 1>"$OUT_DIR/lslogins-output-all.txt" 2>/dev/null
 
 wtmpdb last 1>"$OUT_DIR/wtmpdb_last.txt"
 wtmpdb last -Fi 1>"$OUT_DIR/wtmpdb_last-Fi.txt"
