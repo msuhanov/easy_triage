@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260402'
+TOOL_VERSION='20260413'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -348,6 +348,8 @@ if [ -d /var/nslog ]; then
   nscli -U %%:.:. show system session 2>/dev/null >> "$OUT_FILE2"
   echo '---' >> "$OUT_FILE2"
   nscli -U %%:.:. show tcpProfile 2>/dev/null >> "$OUT_FILE2"
+  echo '---' >> "$OUT_FILE2"
+  nscli -U %%:.:. show tcpParam 2>/dev/null >> "$OUT_FILE2"
 
   echo "$OUT_FILE2"
 fi
