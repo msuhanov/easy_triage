@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260407'
+TOOL_VERSION='20260421'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -504,8 +504,16 @@ echo -n 'Collecting timeline... / '
 echo 'inode,Hard Links,Path,Last Access,Last Modification,Last Status Change,Created,User,Group,Permissions,File Size (bytes)' 1>"$OUT_DIR/timeline.csv"
 find / -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,%U,%G,%A,%s\n' 2>/dev/null 1>> "$OUT_DIR/timeline.csv"
 
+# Work-around ancient versions found in RHEL 7.4 and similar distros...
+not_ancient_findmnt=$(findmnt --help 2>/dev/null | grep -- --mountpoint)
+
 for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64; do
-  findmnt --mountpoint "$dir" 1>/dev/null 2>/dev/null || continue
+  if [ -n "$not_ancient_findmnt" ]; then
+    findmnt --mountpoint "$dir" 1>/dev/null 2>/dev/null || continue
+  else
+    findmnt --target "$dir" -o TARGET -n -r 2>/dev/null | grep -E '^'"$dir"'$' >/dev/null || continue
+  fi
+
   echo -n "$dir "
   find "$dir" -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,%U,%G,%A,%s\n' 2>/dev/null 1>> "$OUT_DIR/timeline.csv"
 done
