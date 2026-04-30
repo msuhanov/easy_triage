@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260421'
+TOOL_VERSION='20260430'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -190,7 +190,9 @@ echo ''
 
 echo 'Collecting network info...'
 ss -anp 1>"$OUT_DIR/ss-anp.txt"
+ss -lnp 1>"$OUT_DIR/ss-lnp.txt"
 netstat -anp 1>"$OUT_DIR/netstat-anp.txt"
+netstat -lnp 1>"$OUT_DIR/netstat-lnp.txt"
 ss -an 1>"$OUT_DIR/ss-an.txt"
 netstat -an 1>"$OUT_DIR/netstat-an.txt"
 ip addr 1>"$OUT_DIR/ip-addr.txt"
@@ -427,6 +429,8 @@ while read -r; do
 done <"$OUT_DIR/env_session_x11.txt"
 rm -f "$OUT_DIR/env_session_x11.txt"
 
+lslocks -b -u 1>"$OUT_DIR/lslocks.txt"
+
 echo 'Done!'
 
 # Logs (especially, audit logs) must be copied before creating the timeline (in case all commands are logged)...
@@ -507,7 +511,7 @@ find / -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,
 # Work-around ancient versions found in RHEL 7.4 and similar distros...
 not_ancient_findmnt=$(findmnt --help 2>/dev/null | grep -- --mountpoint)
 
-for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64; do
+for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64 /var/lib/docker /var/lib/containers /var/lib/containers/storage /var/lib/containerd; do
   if [ -n "$not_ancient_findmnt" ]; then
     findmnt --mountpoint "$dir" 1>/dev/null 2>/dev/null || continue
   else
@@ -569,6 +573,8 @@ cat /home/bitrix/.bashrc 1>"$OUT_DIR/bitrix_bashrc.txt" 2>/dev/null
 cat /home/ubuntu/.bashrc 1>"$OUT_DIR/ubuntu_bashrc.txt" 2>/dev/null
 cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
 cat /home/ubuntu/mbox | gzip -9 1>"$OUT_DIR/ubuntu_mbox.txt.gz" 2>/dev/null
+cat /etc/zsh_command_not_found 1>"$OUT_DIR/etc_zsh_command_not_found.txt" 2>/dev/null
+snap list --all 1>"$OUT_DIR/snap_list_all.txt" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 
 find /proc -mindepth 2 -maxdepth 2 -name 'environ' -type f -exec grep -Fl 'LD_PRELOAD=' {} \; 1>"$OUT_DIR/proc_all_ld_preload.txt" 2>/dev/null
@@ -624,6 +630,10 @@ echo 'Checking file signatures and copying suspicious files...'
 echo '#!/bin/bash' 1>"$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo '[ -n "$1" ] && [ -n "$2" ] || exit 1' 1>> "$OUT_DIR/check_file.sh"
+echo 'if [ "$3" = "dedup" -a -n "$4" ]; then' 1>> "$OUT_DIR/check_file.sh"
+echo '  md5=$(md5sum "$1" | cut -d " " -f 1)' 1>> "$OUT_DIR/check_file.sh"
+echo '  grep -E -m 1 "^$md5" "$4" 1>/dev/null 2>/dev/null && echo "Skipping (same hash: $md5) $1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo 'fi' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo 'signature=$(file -b "$1")' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
@@ -664,11 +674,11 @@ if [ -n "$BIN_IS_SYMLINK" ]; then
     find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   fi
   find /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 else
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /lib*/ /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 fi
 
 gzip -2 "$OUT_DIR/file_sigs.txt"
