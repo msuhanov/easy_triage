@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260430'
+TOOL_VERSION='20260504'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -574,7 +574,7 @@ cat /home/ubuntu/.bashrc 1>"$OUT_DIR/ubuntu_bashrc.txt" 2>/dev/null
 cat /root/mbox | gzip -9 1>"$OUT_DIR/root_mbox.txt.gz" 2>/dev/null
 cat /home/ubuntu/mbox | gzip -9 1>"$OUT_DIR/ubuntu_mbox.txt.gz" 2>/dev/null
 cat /etc/zsh_command_not_found 1>"$OUT_DIR/etc_zsh_command_not_found.txt" 2>/dev/null
-snap list --all 1>"$OUT_DIR/snap_list_all.txt" 2>/dev/null
+[ -x /usr/bin/snap ] && snap list --all 1>"$OUT_DIR/snap_list_all.txt" 2>/dev/null
 printf '%s\n' "$PATH" 1>"$OUT_DIR/path_variable.txt"
 
 find /proc -mindepth 2 -maxdepth 2 -name 'environ' -type f -exec grep -Fl 'LD_PRELOAD=' {} \; 1>"$OUT_DIR/proc_all_ld_preload.txt" 2>/dev/null
