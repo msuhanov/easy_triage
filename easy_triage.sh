@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260504'
+TOOL_VERSION='20260515'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -268,6 +268,7 @@ cat /sys/kernel/security/lockdown 1>"$OUT_DIR/kernel_lockdown_status.txt"
 cat /sys/kernel/oops_count 1>"$OUT_DIR/kernel_oops_count.txt"
 cat /sys/kernel/debug/tracing/tracing_on 1>"$OUT_DIR/kernel_tracing_status.txt"
 cat /sys/kernel/debug/tracing/trace | tail -n 8000 | gzip -7 1>"$OUT_DIR/kernel_tracing_trace_first8000lines.txt.gz"
+cat /sys/kernel/debug/sched/debug | gzip -7 1>"$OUT_DIR/kernel_sched_debug.txt.gz"
 
 sysctl net 1>"$OUT_DIR/sysctl_net.txt" 2>/dev/null
 
@@ -849,16 +850,18 @@ cat "$OUT_DIR/executables_not_from_packages.txt" | head -n 100 1>> "$OUT_DIR/exe
 rm -f "$OUT_DIR/executables_present.txt" "$OUT_DIR/executables_from_packages.txt"
 echo 'Done!'
 
-echo 'Copying executables not from packages...'
-mkdir "$OUT_DIR/binaries_not_from_packages/"
-while read -r; do
-  fn="$REPLY"
-  [ -z "$fn" ] && continue
-  cp --backup=numbered -t "$OUT_DIR/binaries_not_from_packages/" "$fn"
-  md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
-done <"$OUT_DIR/executables_not_from_packages_limit.txt"
-rm -f "$OUT_DIR/executables_not_from_packages_limit.txt"
-echo 'Done!'
+if [ -s "$OUT_DIR/executables_rpm.txt" -o -s "$OUT_DIR/executables_deb.txt" ]; then
+  echo 'Copying executables not from packages...'
+  mkdir "$OUT_DIR/binaries_not_from_packages/"
+  while read -r; do
+    fn="$REPLY"
+    [ -z "$fn" ] && continue
+    cp --backup=numbered -t "$OUT_DIR/binaries_not_from_packages/" "$fn"
+    md5sum "$fn" 1>>"$OUT_DIR/files_copied.md5"
+  done <"$OUT_DIR/executables_not_from_packages_limit.txt"
+  rm -f "$OUT_DIR/executables_not_from_packages_limit.txt"
+  echo 'Done!'
+fi
 
 echo 'Searching for fake systemd executables...'
 cat "$OUT_DIR/executables_systemd_deb.txt" "$OUT_DIR/executables_systemd_rpm.txt" | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_systemd_deb_rpm.txt"
@@ -1227,29 +1230,40 @@ fi
 
 do_rootkit=$(echo "$TRIAGE_OPTIONS" | grep -wo 'rootkit')
 
+# Collect children from visible PIDs.
+find /proc -type f -name 'children' 2>/dev/null | grep -E '^/proc/[[:digit:]]{1,}/task/[[:digit:]]{1,}/children$' | xargs -I '{}' grep -Eo '[[:digit:]]{1,}' '{}' 2>/dev/null 1>>"$OUT_DIR/collected_pids_1.txt"
+
+# Collect children of those...
+while read -r pid; do
+  grep -Eo '[[:digit:]]{1,}' /proc/"$pid"/task/*/children 2>/dev/null 1>>"$OUT_DIR/collected_pids_2.txt"
+done <"$OUT_DIR/collected_pids_1.txt"
+
+# And one more level...
+while read -r pid; do
+  grep -Eo '[[:digit:]]{1,}' /proc/"$pid"/task/*/children 2>/dev/null 1>>"$OUT_DIR/collected_pids_3.txt"
+done <"$OUT_DIR/collected_pids_2.txt"
+
+cat "$OUT_DIR/collected_pids_1.txt" "$OUT_DIR/collected_pids_2.txt" "$OUT_DIR/collected_pids_3.txt" | sort | uniq 1>>"$OUT_DIR/collected_pids.txt"
+rm -f "$OUT_DIR/collected_pids_1.txt" "$OUT_DIR/collected_pids_2.txt" "$OUT_DIR/collected_pids_3.txt"
+
 # Helper script:
 echo '#!/usr/bin/env python' 1>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
 echo 'from __future__ import print_function' 1>>"$OUT_DIR/scan_pids.py"
+echo 'import sys' 1>>"$OUT_DIR/scan_pids.py"
 echo 'import os' 1>>"$OUT_DIR/scan_pids.py"
 echo 'import time' 1>>"$OUT_DIR/scan_pids.py"
 echo 'import subprocess' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
-echo 'PID_LIMIT = 0x1000000' 1>>"$OUT_DIR/scan_pids.py"
 echo 'TIME_LIMIT = 1200' 1>>"$OUT_DIR/scan_pids.py"
-echo '' 1>>"$OUT_DIR/scan_pids.py"
-echo 'pid_start = 2' 1>>"$OUT_DIR/scan_pids.py"
-echo 'pid_end = int(open("/proc/sys/kernel/pid_max", "r").read())' 1>>"$OUT_DIR/scan_pids.py"
-echo '' 1>>"$OUT_DIR/scan_pids.py"
-echo 'if pid_end > PID_LIMIT:' 1>>"$OUT_DIR/scan_pids.py"
-echo '  pid_end = PID_LIMIT' 1>>"$OUT_DIR/scan_pids.py"
+echo 'PIDS_FILE = sys.argv[1]' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
 echo 'time_start = time.time()' 1>>"$OUT_DIR/scan_pids.py"
-echo 'for pid in range(pid_start, pid_end + 1):' 1>>"$OUT_DIR/scan_pids.py"
+echo 'for pid in open(PIDS_FILE, "r").readlines():' 1>>"$OUT_DIR/scan_pids.py"
 echo '  if time.time() - time_start > TIME_LIMIT:' 1>>"$OUT_DIR/scan_pids.py"
 echo '    break' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
-echo '  pid = str(pid)' 1>>"$OUT_DIR/scan_pids.py"
+echo '  pid = pid.rstrip()' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
 echo '  check_readdir_1 = pid in os.listdir("/proc")' 1>>"$OUT_DIR/scan_pids.py"
 echo '  try:' 1>>"$OUT_DIR/scan_pids.py"
@@ -1308,8 +1322,8 @@ echo '    print("---")' 1>>"$OUT_DIR/scan_pids.py"
 
 if [ -n "$best_python" -a "$do_rootkit" = 'rootkit' ]; then
   echo 'Searching for hidden PIDs (limit is 20 mins)...'
-  echo " launching: $best_python \"$OUT_DIR/scan_pids.py\""
-  "$best_python" -u "$OUT_DIR/scan_pids.py" 1>> "$OUT_DIR/scan_pids.txt"
+  echo " launching: $best_python \"$OUT_DIR/scan_pids.py\" \"$OUT_DIR/collected_pids.txt\""
+  "$best_python" -u "$OUT_DIR/scan_pids.py" "$OUT_DIR/collected_pids.txt" 1>> "$OUT_DIR/scan_pids.txt"
   echo 'Done!'
 
   mkdir "$OUT_DIR/binaries_rootkit"
