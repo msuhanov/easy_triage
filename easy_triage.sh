@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260515'
+TOOL_VERSION='20260516'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -1231,16 +1231,16 @@ fi
 do_rootkit=$(echo "$TRIAGE_OPTIONS" | grep -wo 'rootkit')
 
 # Collect children from visible PIDs.
-find /proc -type f -name 'children' 2>/dev/null | grep -E '^/proc/[[:digit:]]{1,}/task/[[:digit:]]{1,}/children$' | xargs -I '{}' grep -Eo '[[:digit:]]{1,}' '{}' 2>/dev/null 1>>"$OUT_DIR/collected_pids_1.txt"
+find /proc -type f -name 'children' 2>/dev/null | grep -E '^/proc/[[:digit:]]{1,}/task/[[:digit:]]{1,}/children$' | xargs -I '{}' grep -Eoh '[[:digit:]]{1,}' '{}' 2>/dev/null 1>>"$OUT_DIR/collected_pids_1.txt"
 
 # Collect children of those...
 while read -r pid; do
-  grep -Eo '[[:digit:]]{1,}' /proc/"$pid"/task/*/children 2>/dev/null 1>>"$OUT_DIR/collected_pids_2.txt"
+  grep -Eoh '[[:digit:]]{1,}' /proc/"$pid"/task/*/children 2>/dev/null 1>>"$OUT_DIR/collected_pids_2.txt"
 done <"$OUT_DIR/collected_pids_1.txt"
 
 # And one more level...
 while read -r pid; do
-  grep -Eo '[[:digit:]]{1,}' /proc/"$pid"/task/*/children 2>/dev/null 1>>"$OUT_DIR/collected_pids_3.txt"
+  grep -Eoh '[[:digit:]]{1,}' /proc/"$pid"/task/*/children 2>/dev/null 1>>"$OUT_DIR/collected_pids_3.txt"
 done <"$OUT_DIR/collected_pids_2.txt"
 
 cat "$OUT_DIR/collected_pids_1.txt" "$OUT_DIR/collected_pids_2.txt" "$OUT_DIR/collected_pids_3.txt" | sort | uniq 1>>"$OUT_DIR/collected_pids.txt"
@@ -1259,11 +1259,26 @@ echo 'TIME_LIMIT = 1200' 1>>"$OUT_DIR/scan_pids.py"
 echo 'PIDS_FILE = sys.argv[1]' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
 echo 'time_start = time.time()' 1>>"$OUT_DIR/scan_pids.py"
-echo 'for pid in open(PIDS_FILE, "r").readlines():' 1>>"$OUT_DIR/scan_pids.py"
+echo '' 1>>"$OUT_DIR/scan_pids.py"
+echo 'pids_lines = open(PIDS_FILE, "r").readlines()' 1>>"$OUT_DIR/scan_pids.py"
+echo 'pids = set()' 1>>"$OUT_DIR/scan_pids.py"
+echo 'for pid in pids_lines:' 1>>"$OUT_DIR/scan_pids.py"
+echo '  pid = int(pid.rstrip())' 1>>"$OUT_DIR/scan_pids.py"
+echo '  for i in range(-50, 51):' 1>>"$OUT_DIR/scan_pids.py"
+echo '    if pid + i >= 1:' 1>>"$OUT_DIR/scan_pids.py"
+echo '      pids.add(pid + i)' 1>>"$OUT_DIR/scan_pids.py"
+echo '' 1>>"$OUT_DIR/scan_pids.py"
+echo 'if len(pids) == 0:' 1>>"$OUT_DIR/scan_pids.py"
+echo '  try:' 1>>"$OUT_DIR/scan_pids.py"
+echo '    pids = xrange(1, 0x400001)' 1>>"$OUT_DIR/scan_pids.py"
+echo '  except Exception:' 1>>"$OUT_DIR/scan_pids.py"
+echo '    pids = range(1, 0x400001)' 1>>"$OUT_DIR/scan_pids.py"
+echo '' 1>>"$OUT_DIR/scan_pids.py"
+echo 'for pid in pids:' 1>>"$OUT_DIR/scan_pids.py"
 echo '  if time.time() - time_start > TIME_LIMIT:' 1>>"$OUT_DIR/scan_pids.py"
 echo '    break' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
-echo '  pid = pid.rstrip()' 1>>"$OUT_DIR/scan_pids.py"
+echo '  pid = str(pid)' 1>>"$OUT_DIR/scan_pids.py"
 echo '' 1>>"$OUT_DIR/scan_pids.py"
 echo '  check_readdir_1 = pid in os.listdir("/proc")' 1>>"$OUT_DIR/scan_pids.py"
 echo '  try:' 1>>"$OUT_DIR/scan_pids.py"
