@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260516'
+TOOL_VERSION='20260528'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -32,15 +32,16 @@ OUT_FILE='artifact_collection_'"$HOSTNAME_SANE"'.bin'
 # - 'omproc' (find processes having their /proc/<pid>/ directories overmounted, which is utilized by some userspace rootkits);
 # - 'strace' (trace basic network activity of suspicious processes, no more than 5 processes and no longer than 3-4 minutes; the 'strace' package will be installed if needed) - DISABLED BY DEFAULT;
 # - 'libscan' (scan .so libraries for malware, using built-in signatures);
-# - 'httplogs' (copy web/proxy server access logs, if found; warning: this could result in archiving hundreds of gigabytes of log files) - DISABLED BY DEFAULT.
+# - 'httplogs' (copy web/proxy server access logs, if found; warning: this could result in archiving hundreds of gigabytes of log files) - DISABLED BY DEFAULT;
+# - 'jars' - collect information about currently loaded JAR files (unzip -l).
 # (Their order does not matter.)
-TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc libscan'
+TRIAGE_OPTIONS='swap orphan internet rootkit qemu omproc libscan jars'
 
 # Refuse to run if there is not enough disk space:
 FREESPACE_THRESHOLD=2097152 # In 1024-byte blocks.
 
 # Regular expression (grep -Ei) to examine command history files:
-HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|php|perl|python|\.py|\.sh|\.sql|tmp|temp|shm|splo|xplo|cve|gcc|chmod|passwd|shadow|useradd|authorized_keys|hosts|[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}|github|pastebin|cdn|(:| )(443|80|22|445|3389)|nmap|scan|dump|flood|ddos|ncat|netcat|gsock|gs.sock|gssock|g.sock|a\.out|HISTFILE|preload|sh_history|whoami|^w$|\.io'
+HISTORY_REGEX='wget|curl|qemu|http|tcp|tor|tunnel|reverse|socks|proxy|cred|ssh|php|perl|python|\.py|\.sh|sql|tmp|temp|shm|splo|xplo|cve|gcc|chmod|passwd|shadow|useradd|authorized_keys|hosts|[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}|github|pastebin|cdn|(:| )(443|80|22|445|3389)|nmap|scan|dump|flood|ddos|ncat|netcat|gsock|gs.sock|gssock|g.sock|a\.out|HISTFILE|preload|sh_history|whoami|^w$|\.io|defunct|nohup|stunn|\.bash_history'
 
 # Regular expression (grep -E, note the missing -i) to examine .so files:
 LIBRARY_REGEX='base64_decode\(|/var/www/html/|/proc/%s/stat|/proc/net/tcp'
@@ -204,7 +205,7 @@ iwconfig 2>/dev/null 1>"$OUT_DIR/iwconfig.txt"
 iwgetid 1>"$OUT_DIR/iwgetid.txt"
 nmcli -t 1>"$OUT_DIR/nmcli-t.txt"
 iptables -L -v -n 1>"$OUT_DIR/iptables-Lvn.txt"
-cat /etc/hosts.allow 1>"$OUT_DIR/hosts_allow.txt"
+cat /etc/hosts.allow 1>"$OUT_DIR/etc_hosts_allow.txt"
 resolvectl show-cache 2>/dev/null 1>"$OUT_DIR/resolvectl-show-cache.txt"
 
 if [ ! -s "$OUT_DIR/resolvectl-show-cache.txt" ]; then
@@ -340,6 +341,8 @@ auditctl -l 1>"$OUT_DIR/audit_rules.txt" 2>/dev/null
 auditctl -s 1>"$OUT_DIR/audit_status.txt" 2>/dev/null
 
 lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
+
+# Don't iterate over all block devices, just try usual candidates:
 [ -b /dev/sda ] && smartctl --all /dev/sda 1>"$OUT_DIR/smartctl-all-sda.txt" 2>/dev/null
 [ -b /dev/sdb ] && smartctl --all /dev/sdb 1>"$OUT_DIR/smartctl-all-sdb.txt" 2>/dev/null
 [ -b /dev/sdc ] && smartctl --all /dev/sdc 1>"$OUT_DIR/smartctl-all-sdc.txt" 2>/dev/null
@@ -348,6 +351,7 @@ lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
 [ -b /dev/sdb ] && hdparm -I /dev/sdb 1>"$OUT_DIR/hdparm-i-sdb.txt" 2>/dev/null
 [ -b /dev/sdc ] && hdparm -I /dev/sdc 1>"$OUT_DIR/hdparm-i-sdc.txt" 2>/dev/null
 [ -b /dev/sdd ] && hdparm -I /dev/sdd 1>"$OUT_DIR/hdparm-i-sdd.txt" 2>/dev/null
+
 lspci -vv 1>"$OUT_DIR/lspci-vv.txt" 2>/dev/null
 lscpu 1>"$OUT_DIR/lscpu.txt" 2>/dev/null
 
@@ -355,7 +359,7 @@ lscpu 1>"$OUT_DIR/lscpu.txt" 2>/dev/null
 lsblk -o fstype,mountpoints -r -n | grep -E '^ntfs' | cut -d ' ' -f 2- | grep -E '^/media' 1>"$OUT_DIR/lsblk_ntfs.txt"
 while read -r; do
   dir=$(echo -e "$REPLY")
-  ls -lht --full-time "$dir" "$dir"/Users 2>/dev/null 1>"$OUT_DIR/ls_ntfs.txt"
+  ls -lat --full-time "$dir" "$dir"/Users 2>/dev/null 1>"$OUT_DIR/ls_ntfs.txt"
 done <"$OUT_DIR/lsblk_ntfs.txt"
 rm -f "$OUT_DIR/lsblk_ntfs.txt"
 
@@ -631,30 +635,43 @@ echo 'Checking file signatures and copying suspicious files...'
 echo '#!/bin/bash' 1>"$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo '[ -n "$1" ] && [ -n "$2" ] || exit 1' 1>> "$OUT_DIR/check_file.sh"
-echo 'if [ "$3" = "dedup" -a -n "$4" ]; then' 1>> "$OUT_DIR/check_file.sh"
-echo '  md5=$(md5sum "$1" | cut -d " " -f 1)' 1>> "$OUT_DIR/check_file.sh"
-echo '  grep -E -m 1 "^$md5" "$4" 1>/dev/null 2>/dev/null && echo "Skipping (same hash: $md5) $1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
-echo 'fi' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo 'signature=$(file -b "$1")' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo 'is_executable=$(echo "$signature" | grep -E "ELF|script|executable")' 1>> "$OUT_DIR/check_file.sh"
-echo 'is_static_elf=$(echo "$signature" | grep -E "ELF.*static")' 1>> "$OUT_DIR/check_file.sh"
-echo 'is_upx=$(dd if="$1" bs=304 count=1 2>/dev/null | grep -Fao "UPX")' 1>> "$OUT_DIR/check_file.sh"
-echo 'is_github=$(grep -Fao "github.com/" "$1" 1>/dev/null)' 1>> "$OUT_DIR/check_file.sh"
-echo 'is_suspicious_path=$(echo "$1" | grep -E "/tmp|/temp|/var/tmp/|/dev/shm/")' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_executable" ] && is_static_elf=$(echo "$signature" | grep -E "ELF.*static")' 1>> "$OUT_DIR/check_file.sh"
+# UPX stub is statically linked:
+echo '[ -n "$is_static_elf" ] && is_upx=$(dd if="$1" bs=304 count=1 2>/dev/null | grep -Fao "UPX")' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_executable" ] && is_github=$(grep -Fao "github.com/" "$1" 1>/dev/null)' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_executable" ] && is_suspicious_path=$(echo "$1" | grep -E "/tmp|/temp|/var/tmp/|/dev/shm/")' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo 'additional=""' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" -a -n "$is_suspicious_path" ] && additional="has suspicious path"' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" -a -n "$is_upx" ] && additional="likely UPX-packed"' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" -a -n "$is_github" ] && additional="contains link to GitHub"' 1>> "$OUT_DIR/check_file.sh"
+# Pick the most important additional reason here (path -> strings -> packer):
+echo '[ -n "$is_suspicious_path" ] && additional="has suspicious path"' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_github" ] && additional="contains link to GitHub"' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_upx" ] && additional="likely UPX-packed"' 1>> "$OUT_DIR/check_file.sh"
 echo 'echo "$1	$signature	$additional"' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_static_elf" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" -a -n "$is_github" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" -a -n "$is_upx" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" -a -n "$is_suspicious_path" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo 'if [ "$3" = "dedup" -a -n "$4" ]; then' 1>> "$OUT_DIR/check_file.sh"
+echo '  md5r=$(md5sum "$1")' 1>> "$OUT_DIR/check_file.sh"
+echo '  md5=$(echo "$md5r" | cut -d " " -f 1)' 1>> "$OUT_DIR/check_file.sh"
+echo '  grep -E -m 1 "^$md5" "$4" 1>/dev/null 2>/dev/null && echo "Skipping (same hash: $md5) $1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '  [ -n "$is_static_elf" ] && cp --backup=numbered -t "$2" "$1" && echo "$md5r" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '  [ -n "$is_github" ] && cp --backup=numbered -t "$2" "$1" && echo "$md5r" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '  [ -n "$is_upx" ] && cp --backup=numbered -t "$2" "$1" && echo "$md5r" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '  [ -n "$is_suspicious_path" ] && cp --backup=numbered -t "$2" "$1" && echo "$md5r" && exit 0' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
+# Something has failed:
+echo '  exit 1' 1>> "$OUT_DIR/check_file.sh"
+echo '' 1>> "$OUT_DIR/check_file.sh"
+echo 'fi' 1>> "$OUT_DIR/check_file.sh"
+echo '' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_static_elf" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_github" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_upx" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_suspicious_path" ] && cp --backup=numbered -t "$2" "$1" && md5sum "$1" && exit 0' 1>> "$OUT_DIR/check_file.sh"
+echo '' 1>> "$OUT_DIR/check_file.sh"
+# Something has failed:
 echo 'exit 1' 1>> "$OUT_DIR/check_file.sh"
 
 chmod +x "$OUT_DIR/check_file.sh"
@@ -1516,6 +1533,27 @@ if [ "$do_libscan" = 'libscan' ]; then
   echo 'Done!'
 fi
 
+do_jars=$(echo "$TRIAGE_OPTIONS" | grep -wo 'jars')
+if [ "$do_jars" = 'jars' ]; then
+  echo 'Scanning for opened .jar files and listing them...'
+  which unzip 1>/dev/null 2>/dev/null
+  if [ $? -eq 0 ]; then
+    find /proc/ -mindepth 2 -maxdepth 3 \( ! -name 'fd' -prune \) \( -path '*/fd/*' \) -type l 2>/dev/null 1>>"$OUT_DIR/open_fds.txt"
+    while read fn; do
+      is_jar=$(readlink "$fn" 2>/dev/null | grep -Ei '\.jar($| )')
+      if [ -n "$is_jar" ]; then
+        fn_resolved=$(readlink -n "$fn")
+        printf '%s\n' "$fn_resolved" 1>>"$OUT_DIR/jars_listings.txt"
+        unzip -l "$fn" 1>>"$OUT_DIR/jars_listings.txt"
+        echo '---' 1>>"$OUT_DIR/jars_listings.txt"
+      fi
+    done <"$OUT_DIR/open_fds.txt"
+    rm -f "$OUT_DIR/open_fds.txt"
+    [ -r "$OUT_DIR/jars_listings.txt" ] && gzip -9 "$OUT_DIR/jars_listings.txt"
+  fi
+  echo 'Done!'
+fi
+
 # Trace network activity of suspicious processes...
 do_strace=$(echo "$TRIAGE_OPTIONS" | grep -wo 'strace')
 
@@ -1633,6 +1671,7 @@ fi
 
 echo 'Finalizing and packing results...'
 echo "$TOOL_VERSION" 1>"$OUT_DIR/easy_triage_version.txt"
+echo '# Some files can be recorded here: file_sigs.txt[.gz]' 1>>"$OUT_DIR/files_copied.md5"
 rm -f "$OUT_FILE"
 tar cvSjf "$OUT_FILE" "$OUT_DIR" 1>/dev/null 2>/dev/null || tar zvScf "$OUT_FILE" "$OUT_DIR" 1>/dev/null
 [ -r "$OUT_DIR/check_file.sh" -a -r "$OUT_DIR/easy_triage_version.txt" ] && rm -fr "$OUT_DIR"
