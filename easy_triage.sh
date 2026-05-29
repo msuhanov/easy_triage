@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260528'
+TOOL_VERSION='20260529'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -205,6 +205,10 @@ iwconfig 2>/dev/null 1>"$OUT_DIR/iwconfig.txt"
 iwgetid 1>"$OUT_DIR/iwgetid.txt"
 nmcli -t 1>"$OUT_DIR/nmcli-t.txt"
 iptables -L -v -n 1>"$OUT_DIR/iptables-Lvn.txt"
+
+which nft 1>/dev/null 2>/dev/null
+[ $? -eq 0 ] && nft list ruleset 1>"$OUT_DIR/nft list ruleset.txt"
+
 cat /etc/hosts.allow 1>"$OUT_DIR/etc_hosts_allow.txt"
 resolvectl show-cache 2>/dev/null 1>"$OUT_DIR/resolvectl-show-cache.txt"
 
@@ -268,7 +272,7 @@ cat /proc/vmallocinfo | gzip -7 1>"$OUT_DIR/kernel_vmallocinfo.txt.gz"
 cat /sys/kernel/security/lockdown 1>"$OUT_DIR/kernel_lockdown_status.txt"
 cat /sys/kernel/oops_count 1>"$OUT_DIR/kernel_oops_count.txt"
 cat /sys/kernel/debug/tracing/tracing_on 1>"$OUT_DIR/kernel_tracing_status.txt"
-cat /sys/kernel/debug/tracing/trace | tail -n 8000 | gzip -7 1>"$OUT_DIR/kernel_tracing_trace_first8000lines.txt.gz"
+cat /sys/kernel/debug/tracing/trace | head -n 8000 | gzip -7 1>"$OUT_DIR/kernel_tracing_trace_first8000lines.txt.gz"
 cat /sys/kernel/debug/sched/debug | gzip -7 1>"$OUT_DIR/kernel_sched_debug.txt.gz"
 
 sysctl net 1>"$OUT_DIR/sysctl_net.txt" 2>/dev/null
@@ -335,6 +339,7 @@ df -h 1>"$OUT_DIR/df-h.txt"
 cat /etc/passwd 1>"$OUT_DIR/passwd.txt"
 cat /etc/group 1>"$OUT_DIR/group.txt"
 cat /etc/sudoers 1>"$OUT_DIR/sudoers.txt"
+
 klist 1>"$OUT_DIR/kerberos.txt" 2>/dev/null
 
 auditctl -l 1>"$OUT_DIR/audit_rules.txt" 2>/dev/null
@@ -359,7 +364,7 @@ lscpu 1>"$OUT_DIR/lscpu.txt" 2>/dev/null
 lsblk -o fstype,mountpoints -r -n | grep -E '^ntfs' | cut -d ' ' -f 2- | grep -E '^/media' 1>"$OUT_DIR/lsblk_ntfs.txt"
 while read -r; do
   dir=$(echo -e "$REPLY")
-  ls -lat --full-time "$dir" "$dir"/Users 2>/dev/null 1>"$OUT_DIR/ls_ntfs.txt"
+  ls -lat --full-time "$dir" "$dir"/Users 2>/dev/null 1>>"$OUT_DIR/ls_ntfs.txt"
 done <"$OUT_DIR/lsblk_ntfs.txt"
 rm -f "$OUT_DIR/lsblk_ntfs.txt"
 
@@ -369,6 +374,10 @@ systemd-detect-virt 1>"$OUT_DIR/systemd-detect-virt.txt" 2>/dev/null
 cat /proc/kallsyms | gzip -4 1>"$OUT_DIR/kernel_kallsyms.txt.gz"
 
 bpftool prog list 1>"$OUT_DIR/bpftool_prog_list.txt" 2>/dev/null
+bpftool map list 1>"$OUT_DIR/bpftool_map_list.txt" 2>/dev/null
+bpftool link list 1>"$OUT_DIR/bpftool_link_list.txt" 2>/dev/null
+bpftool perf list 1>"$OUT_DIR/bpftool_perf_list.txt" 2>/dev/null
+bpftool cgroup tree 1>"$OUT_DIR/bpftool_cgroup_tree.txt" 2>/dev/null
 ls -l --full-time /sys/fs/bpf/ 1>"$OUT_DIR/sys_fs_bpf.txt" 2>/dev/null
 
 which astra-interpreters-lock 1>/dev/null 2>/dev/null
@@ -642,7 +651,7 @@ echo 'is_executable=$(echo "$signature" | grep -E "ELF|script|executable")' 1>> 
 echo '[ -n "$is_executable" ] && is_static_elf=$(echo "$signature" | grep -E "ELF.*static")' 1>> "$OUT_DIR/check_file.sh"
 # UPX stub is statically linked:
 echo '[ -n "$is_static_elf" ] && is_upx=$(dd if="$1" bs=304 count=1 2>/dev/null | grep -Fao "UPX")' 1>> "$OUT_DIR/check_file.sh"
-echo '[ -n "$is_executable" ] && is_github=$(grep -Fao "github.com/" "$1" 1>/dev/null)' 1>> "$OUT_DIR/check_file.sh"
+echo '[ -n "$is_executable" ] && is_github=$(grep -Faom1 "github.com/" "$1" 2>/dev/null)' 1>> "$OUT_DIR/check_file.sh"
 echo '[ -n "$is_executable" ] && is_suspicious_path=$(echo "$1" | grep -E "/tmp|/temp|/var/tmp/|/dev/shm/")' 1>> "$OUT_DIR/check_file.sh"
 echo '' 1>> "$OUT_DIR/check_file.sh"
 echo 'additional=""' 1>> "$OUT_DIR/check_file.sh"
@@ -692,10 +701,12 @@ if [ -n "$BIN_IS_SYMLINK" ]; then
     find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   fi
   find /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /root/ /home/*/ -maxdepth 1 -xdev -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 else
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /lib*/ /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /root/ /home/*/ -maxdepth 1 -xdev -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 fi
 
@@ -917,10 +928,10 @@ find /home/*/ /root/ -xdev -maxdepth 2 -name '*hist*' -type f -exec grep -EiaHn 
 find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '*hist*' -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
 echo 'Done!'
 
-echo 'Dumping last 50 lines of history recorded for root...'
-tail -n 50 /root/.bash_history 2>/dev/null 1> "$OUT_DIR/hist_root_last50_bash.txt"
-tail -n 50 /root/.sh_history 2>/dev/null 1> "$OUT_DIR/hist_root_last50_sh.txt"
-tail -n 50 /root/.python_history 2>/dev/null 1> "$OUT_DIR/hist_root_last50_python.txt"
+echo 'Dumping last lines of history recorded for root...'
+tail -n 100 /root/.bash_history 2>/dev/null 1> "$OUT_DIR/hist_root_last100_bash.txt"
+tail -n 100 /root/.sh_history 2>/dev/null 1> "$OUT_DIR/hist_root_last100_sh.txt"
+tail -n 100 /root/.python_history 2>/dev/null 1> "$OUT_DIR/hist_root_last100_python.txt"
 echo 'Done!'
 
 echo 'Scanning for less history...'
@@ -948,7 +959,7 @@ echo 'Done!'
 
 echo 'Scanning for Remmina configs...'
 find /home/*/ /root/ -xdev -maxdepth 5 \( -name 'remmina.pref' -o -name '*.remmina' \) -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/remmina_configs.txt"
-find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker \(- name 'remmina.pref' -o -name '*.remmina' \) -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/remmina_configs.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker \( -name 'remmina.pref' -o -name '*.remmina' \) -type f -exec grep -aH '' {} \; 2>/dev/null 1>> "$OUT_DIR/remmina_configs.txt"
 echo 'Done!'
 
 echo 'Scanning for MC history...'
@@ -1550,6 +1561,8 @@ if [ "$do_jars" = 'jars' ]; then
     done <"$OUT_DIR/open_fds.txt"
     rm -f "$OUT_DIR/open_fds.txt"
     [ -r "$OUT_DIR/jars_listings.txt" ] && gzip -9 "$OUT_DIR/jars_listings.txt"
+  else
+    echo 'No unzip available... Skipping.'
   fi
   echo 'Done!'
 fi
@@ -1614,7 +1627,7 @@ if [ "$do_strace" = 'strace' ]; then
   fi
 
   # 'python' that runs without arguments, 2 processes.
-  pids2=$(ps -e -o pid,cmd -w -w | grep -E '( |/)python(|2|3)$' | tail -n 2 | awk '{ print $1 }')
+  pids2=$(ps -e -o pid,cmd -w -w | grep -E '( |/)python(|2|3)$' | tail -n 2 | awk '{ print $1 }' | tr '\n' ',')
   if [ -z "$pids2" ]; then
     # Or 'python -i', or 'python -u', 'python -q'... 1 process.
     pids2=$(ps -e -o pid,cmd -w -w | grep -E '( |/)python(|2|3)[[:space:]]{1,5}(-i|-u|-q)[[:space:]]{0,5}$' | head -n 1 | awk '{ print $1 }')
