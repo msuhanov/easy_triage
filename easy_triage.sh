@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260529'
+TOOL_VERSION='20260601'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -207,7 +207,7 @@ nmcli -t 1>"$OUT_DIR/nmcli-t.txt"
 iptables -L -v -n 1>"$OUT_DIR/iptables-Lvn.txt"
 
 which nft 1>/dev/null 2>/dev/null
-[ $? -eq 0 ] && nft list ruleset 1>"$OUT_DIR/nft list ruleset.txt"
+[ $? -eq 0 ] && nft list ruleset 1>"$OUT_DIR/nft-list-ruleset.txt"
 
 cat /etc/hosts.allow 1>"$OUT_DIR/etc_hosts_allow.txt"
 resolvectl show-cache 2>/dev/null 1>"$OUT_DIR/resolvectl-show-cache.txt"
