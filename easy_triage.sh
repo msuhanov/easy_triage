@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260601'
+TOOL_VERSION='20260625'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -316,6 +316,8 @@ mkdir "$OUT_DIR/lastlog/" && cp --sparse=always -t "$OUT_DIR/lastlog/" /var/log/
 
 last -Fi 1>"$OUT_DIR/last-Fi.txt"
 lastb -Fi 1>"$OUT_DIR/lastb-Fi.txt"
+last 1>"$OUT_DIR/last.txt"
+lastb 1>"$OUT_DIR/lastb.txt"
 
 lslogins 1>"$OUT_DIR/lslogins.txt"
 lslogins -f 1>"$OUT_DIR/lslogins-f.txt" 2>/dev/null
@@ -444,6 +446,13 @@ done <"$OUT_DIR/env_session_x11.txt"
 rm -f "$OUT_DIR/env_session_x11.txt"
 
 lslocks -b -u 1>"$OUT_DIR/lslocks.txt"
+
+# Collect GPU-related info...
+which nvidia-smi 1>/dev/null 2>/dev/null
+if [ $? -eq 0 ]; then
+  nvidia-smi -L 1>"$OUT_DIR/nvidia-gpus.txt"
+  nvidia-smi -q 1>"$OUT_DIR/nvidia-info.txt"
+fi
 
 echo 'Done!'
 
