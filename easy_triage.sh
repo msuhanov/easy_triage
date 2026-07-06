@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260625'
+TOOL_VERSION='20260706'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -329,6 +329,11 @@ lslogins -a 1>"$OUT_DIR/lslogins-a.txt" 2>/dev/null
 
 wtmpdb last 1>"$OUT_DIR/wtmpdb_last.txt"
 wtmpdb last -Fi 1>"$OUT_DIR/wtmpdb_last-Fi.txt"
+
+faillog -a 1>"$OUT_DIR/faillog-a.txt"
+
+# Scan for SSH connections recorded in environment variables...
+find /proc/ -mindepth 2 -maxdepth 2 -name 'environ' -exec grep -EHao '(SSH_CONNECTION|SSH_CLIENT)=[a-zA-Z0-9\.:_ -]+' {} \; 2>/dev/null >"$OUT_DIR/env_ssh_connection_or_client.txt"
 
 cat /proc/mounts 1>"$OUT_DIR/mounts.txt"
 mount 1>"$OUT_DIR/mount.txt"
