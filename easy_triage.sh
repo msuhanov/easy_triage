@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260706'
+TOOL_VERSION='20260726'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -206,11 +206,16 @@ iwgetid 1>"$OUT_DIR/iwgetid.txt"
 nmcli -t 1>"$OUT_DIR/nmcli-t.txt"
 iptables -L -v -n 1>"$OUT_DIR/iptables-Lvn.txt"
 
+which mmcli 1>/dev/null 2>/dev/null
+[ $? -eq 0 ] && mmcli -L 1>"$OUT_DIR/mmcli-L.txt"
+
 which nft 1>/dev/null 2>/dev/null
 [ $? -eq 0 ] && nft list ruleset 1>"$OUT_DIR/nft-list-ruleset.txt"
 
 cat /etc/hosts.allow 1>"$OUT_DIR/etc_hosts_allow.txt"
-resolvectl show-cache 2>/dev/null 1>"$OUT_DIR/resolvectl-show-cache.txt"
+
+# Avoid the elevation request if not root...
+[ $EUID -eq 0 ] && resolvectl show-cache 2>/dev/null 1>"$OUT_DIR/resolvectl-show-cache.txt"
 
 if [ ! -s "$OUT_DIR/resolvectl-show-cache.txt" ]; then
   # Force the systemd-resolved to dump its cache data into the journal.
@@ -367,11 +372,13 @@ lsusb -tv 1>"$OUT_DIR/lsusb-tv.txt" 2>/dev/null
 lspci -vv 1>"$OUT_DIR/lspci-vv.txt" 2>/dev/null
 lscpu 1>"$OUT_DIR/lscpu.txt" 2>/dev/null
 
-# List files on '/media'-mounted NTFS volumes (root and '/Users' only)...
-lsblk -o fstype,mountpoints -r -n | grep -E '^ntfs' | cut -d ' ' -f 2- | grep -E '^/media' 1>"$OUT_DIR/lsblk_ntfs.txt"
+# List files on '*/media'-mounted NTFS volumes (root and '/Users' only)...
+lsblk -o fstype,mountpoints -r -n | grep -E '^ntfs' | cut -d ' ' -f 2- | grep -E '/media' 1>"$OUT_DIR/lsblk_ntfs.txt"
 while read -r; do
   dir=$(echo -e "$REPLY")
   ls -lat --full-time "$dir" "$dir"/Users 2>/dev/null 1>>"$OUT_DIR/ls_ntfs.txt"
+  echo '' 1>>"$OUT_DIR/ls_ntfs.txt"
+  # We don't bother about collecting more data here. Use Windows-specific tools.
 done <"$OUT_DIR/lsblk_ntfs.txt"
 rm -f "$OUT_DIR/lsblk_ntfs.txt"
 
@@ -529,6 +536,19 @@ if [ -f /var/log/vmware/messages ]; then
   mkdir "$OUT_DIR/vcenter_messages/" && cp -n -R -t "$OUT_DIR/vcenter_messages/" /var/log/vmware/messages*
   mkdir "$OUT_DIR/vcenter_procstate/" && cp -n -R -t "$OUT_DIR/vcenter_procstate/" /var/log/vmware/procstate*
 fi
+echo 'Searching for deleted logs...'
+find /proc/ -mindepth 2 -maxdepth 3 \( ! -name 'fd' -prune \) -path '*/fd/*' -type l -printf '%p\t' -exec bash -c 'readlink -n {} ; echo' \; 2>/dev/null | grep -Fa '(deleted)' | grep -Ea '/var/log/.*(auth|secure|journal)' 1>>"$OUT_DIR/logs_deleted.txt"
+if [ -s "$OUT_DIR/logs_deleted.txt" ]; then
+  cat "$OUT_DIR/logs_deleted.txt" | head -n 10 > "$OUT_DIR/logs_deleted_limit.txt"
+  while read -r; do
+    fn=$(echo "$REPLY" | cut -d '	' -f 1)
+    echo "  found: $fn"
+    out_fn=$(echo "$fn" | sed -e 's/\//_/g')
+    mkdir "$OUT_DIR/logs_deleted/" 2>/dev/null
+    cat "$fn" > "$OUT_DIR/logs_deleted/$out_fn"
+  done <"$OUT_DIR/logs_deleted_limit.txt"
+  rm -f "$OUT_DIR/logs_deleted_limit.txt"
+fi
 echo 'Done!'
 
 echo -n 'Collecting timeline... / '
@@ -539,7 +559,7 @@ find / -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,
 # Work-around ancient versions found in RHEL 7.4 and similar distros...
 not_ancient_findmnt=$(findmnt --help 2>/dev/null | grep -- --mountpoint)
 
-for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64 /var/lib/docker /var/lib/containers /var/lib/containers/storage /var/lib/containerd; do
+for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64 /var/lib/docker /var/lib/containers /var/lib/containers/storage /var/lib/containerd /site /sites /web /storage; do
   if [ -n "$not_ancient_findmnt" ]; then
     findmnt --mountpoint "$dir" 1>/dev/null 2>/dev/null || continue
   else
@@ -626,6 +646,21 @@ mkdir "$OUT_DIR/systemd_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_lib_
 mkdir "$OUT_DIR/systemd_usr_lib_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_usr_lib_systemd_user/" /usr/lib/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/systemd_etc_systemd_user/" && cp -n -R -t "$OUT_DIR/systemd_etc_systemd_user/" /etc/systemd/user/ 2>/dev/null
 mkdir "$OUT_DIR/xdg_etc_autostart/" && cp -n -R -t "$OUT_DIR/xdg_etc_autostart/" /etc/xdg/autostart/ 2>/dev/null
+
+# Some old versions of systemctl declare support for the 'json-pretty' format, but don't use it when requested!
+# So, this could be a regular text file.
+systemctl list-unit-files --no-pager --no-ask-password --output=json-pretty --type=service 2>/dev/null 1>"$OUT_DIR/systemd_services.json"
+
+# Here, parsers should use '^(Id|Type)=' as a separator between services (look at the first to be sure).
+# Try the 'json-pretty' format first...
+cat "$OUT_DIR/systemd_services.json" | grep -Eo '"unit_file" : ".+",' | cut -d '"' -f 4 | xargs -I '{}' systemctl show --no-pager --no-ask-password '{}' 2>/dev/null 1>"$OUT_DIR/systemd_services_all.txt"
+
+# If that failed, try the usual text format!
+if [ ! -s "$OUT_DIR/systemd_services_all.txt" ]; then
+  cat "$OUT_DIR/systemd_services.json" | grep -Eo '^.+\.service' | xargs -I '{}' systemctl show --no-pager --no-ask-password '{}' 2>/dev/null 1>"$OUT_DIR/systemd_services_all.txt"
+  mv "$OUT_DIR/systemd_services.json" "$OUT_DIR/systemd_services.txt"
+fi
+gzip -9 "$OUT_DIR/systemd_services_all.txt"
 
 mkdir "$OUT_DIR/pamd_etc/" && cp -n -R -t "$OUT_DIR/pamd_etc/" /etc/pam.d/ 2>/dev/null
 
@@ -715,13 +750,13 @@ if [ -n "$BIN_IS_SYMLINK" ]; then
     find /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   fi
   find /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /root/ /home/*/ -maxdepth 1 -xdev -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /root/ /home/*/ -maxdepth 1 -xdev -type f -executable -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -executable -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 else
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ /usr/local/ /tmp/ /var/tmp/ /dev/shm/ -maxdepth 4 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
   find /lib*/ /usr/lib*/ -maxdepth 2 -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /root/ /home/*/ -maxdepth 1 -xdev -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
-  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /root/ /home/*/ -maxdepth 1 -xdev -type f -executable -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
+  find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -type f -executable -exec "$OUT_DIR/check_file.sh" {} "$OUT_DIR"/binaries_suspicious/ dedup "$OUT_DIR/file_sigs.txt" \; 2>/dev/null 1>> "$OUT_DIR/file_sigs.txt"
 fi
 
 gzip -2 "$OUT_DIR/file_sigs.txt"
@@ -887,7 +922,15 @@ else
   mv "$OUT_DIR/executables_from_packages_draft1.txt" "$OUT_DIR/executables_from_packages.txt"
   find /bin/ /sbin/ /usr/bin/ /usr/sbin/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_present.txt"
 fi
-comm -2 -3 "$OUT_DIR/executables_present.txt" "$OUT_DIR/executables_from_packages.txt" 1>> "$OUT_DIR/executables_not_from_packages.txt"
+
+# In 'uutils coreutils', 'comm' is broken (at least 0.8.0 in Ubuntu 26.04). Totally broken! See: <https://github.com/uutils/coreutils/issues/12253>.
+bad_comm=$(comm --version | grep -F 'uutils coreutils')
+if [ -z "$bad_comm" ]; then
+  comm -2 -3 "$OUT_DIR/executables_present.txt" "$OUT_DIR/executables_from_packages.txt" 1>> "$OUT_DIR/executables_not_from_packages.txt"
+else
+  echo '(Likely misbehaving comm tool detected.)'
+  grep -Fxvf "$OUT_DIR/executables_from_packages.txt" "$OUT_DIR/executables_present.txt" 1>> "$OUT_DIR/executables_not_from_packages.txt"
+fi
 cat "$OUT_DIR/executables_not_from_packages.txt" | head -n 100 1>> "$OUT_DIR/executables_not_from_packages_limit.txt" # Limit the number of files to copy, because not everything is DEB/RPM-based...
 rm -f "$OUT_DIR/executables_present.txt" "$OUT_DIR/executables_from_packages.txt"
 echo 'Done!'
@@ -919,7 +962,11 @@ if [ -n "$BIN_IS_SYMLINK" ]; then
 else
   find /usr/lib/systemd/ /lib/systemd/ -maxdepth 1 -type f | sort -T "$OUT_DIR" 2>/dev/null 1>> "$OUT_DIR/executables_systemd_present.txt" # Common locations!
 fi
-comm -2 -3 "$OUT_DIR/executables_systemd_present.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt" 1>> "$OUT_DIR/executables_fake_systemd.txt"
+if [ -z "$bad_comm" ]; then
+  comm -2 -3 "$OUT_DIR/executables_systemd_present.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt" 1>> "$OUT_DIR/executables_fake_systemd.txt"
+else
+  grep -Fxvf "$OUT_DIR/executables_systemd_deb_rpm.txt" "$OUT_DIR/executables_systemd_present.txt" 1>> "$OUT_DIR/executables_fake_systemd.txt"
+fi
 find /var/lib/systemd/ -maxdepth 2 -type f -executable 1>> "$OUT_DIR/executables_fake_systemd.txt" # Another common location...
 cat "$OUT_DIR/executables_fake_systemd.txt" | head -n 25 1>> "$OUT_DIR/executables_fake_systemd_limit.txt" # Limit the number of files to copy, just in case...
 rm -f "$OUT_DIR/executables_systemd_present.txt" "$OUT_DIR/executables_fake_systemd.txt" "$OUT_DIR/executables_systemd_deb_rpm.txt"
@@ -1689,9 +1736,9 @@ if [ "$do_swap" = 'swap' ]; then
 
   if [ -n "$swap_dev" -a -r "$swap_dev" ]; then
     printf '%s\n' " $swap_dev"
-    # This will never read more than 8 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
+    # This will never read more than 16 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
     # Use direct I/O to reduce the cache usage. If that mode is unavailable, bail out!
-    dd if="$swap_dev" bs=1024 iflag=direct count=8388608 2>/dev/null | $best_strings -n 10 | grep -E -A 5 -B 5 '(Accepted )|(session\..* addr\.remote:)|(session.* teleportUser:)' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
+    dd if="$swap_dev" bs=2048 iflag=direct count=8388608 2>/dev/null | $best_strings -n 10 | grep -E -A 5 -B 5 '(Accepted )|(session\..* addr\.remote:)|(session.* teleportUser:)' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
   fi
   echo 'Done!'
 fi
