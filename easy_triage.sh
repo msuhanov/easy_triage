@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260726'
+TOOL_VERSION='20260907'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -559,7 +559,7 @@ find / -xdev -print0 2>/dev/null | xargs -0 stat --printf='%i,%h,%n,%x,%y,%z,%w,
 # Work-around ancient versions found in RHEL 7.4 and similar distros...
 not_ancient_findmnt=$(findmnt --help 2>/dev/null | grep -- --mountpoint)
 
-for dir in /usr /tmp /var /var/tmp /var/log /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64 /var/lib/docker /var/lib/containers /var/lib/containers/storage /var/lib/containerd /site /sites /web /storage; do
+for dir in /usr /tmp /var /var/tmp /var/log /var/log/audit /var/run /var/lib /var/www /home /root /etc /opt /srv /www /data /boot /boot/efi /snap /run /lib /lib64 /var/lib/docker /var/lib/containers /var/lib/containers/storage /var/lib/containerd /site /sites /web /storage; do
   if [ -n "$not_ancient_findmnt" ]; then
     findmnt --mountpoint "$dir" 1>/dev/null 2>/dev/null || continue
   else
