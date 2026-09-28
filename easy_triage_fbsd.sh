@@ -164,16 +164,16 @@ if [ -d /var/nslog ]; then
   # Let's examine kernel messages: in the current log file and in some of the previous ones...
   # (Skip entries that refer to this collector!)
   for fn_log in /var/log/messages /var/log/messages.0 /var/log/messages.1 /var/log/messages.2 /var/log/messages.3 /var/log/messages.4 /var/log/messages.5; do
-    [ -e $fn_log ] || continue
-    cat $fn_log | grep -Fa 'MAC/veriexec: no fingerprint (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
-    cat $fn_log | grep -Fa 'MAC/veriexec: fingerprint does not match loaded value (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+    [ -e "$fn_log" ] || continue
+    cat "$fn_log" | grep -Fa 'MAC/veriexec: no fingerprint (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+    cat "$fn_log" | grep -Fa 'MAC/veriexec: fingerprint does not match loaded value (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
   done
 
   # Also, handle compressed (gzip) log files...
   for fn_log in /var/log/messages.0.gz /var/log/messages.1.gz /var/log/messages.2.gz /var/log/messages.3.gz /var/log/messages.4.gz /var/log/messages.5.gz; do
-    [ -e $fn_log ] || continue
-    zcat $fn_log | grep -Fa 'MAC/veriexec: no fingerprint (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
-    zcat $fn_log | grep -Fa 'MAC/veriexec: fingerprint does not match loaded value (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+    [ -e "$fn_log" ] || continue
+    zcat "$fn_log" | grep -Fa 'MAC/veriexec: no fingerprint (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
+    zcat "$fn_log" | grep -Fa 'MAC/veriexec: fingerprint does not match loaded value (file=' | grep -Fva 'easy_triage' | grep -Fva '/stat.py' >> "$OUT_DIR"/binaries_failed_logs.txt
   done
 
   # The path can be absolute or relative, it may contain spaces and backslashes (not escaped), so treat paths literally...
