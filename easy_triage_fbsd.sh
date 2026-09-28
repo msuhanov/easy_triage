@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260413'
+TOOL_VERSION='20260928'
 
 # We expect the hostname to be "sane":
 HOSTNAME=$(hostname)
@@ -26,7 +26,7 @@ NS_CORE='y'
 UPDATE_IDS='n'
 
 # Search for possible web shells (PHP) using this regex (grep -Ei):
-WEBSHELL_REGEX='eval( ){0,4}\(\$|base64_decode( ){0,4}\(|http_status_code\(|http_response_code\(40|array_filter( ){0,4}\(|openssl_decrypt\(|str_rot13\(|hex2bin\(substr\(|@array_filter'
+WEBSHELL_REGEX='eval( ){0,4}\(\$|base64_decode( ){0,4}\(|http_status_code\(|http_response_code\(40|array_filter( ){0,4}\(|openssl_decrypt\(|str_rot13\(|hex2bin\(substr\(|@array_filter|passthru( ){0,4}\('
 
 # Some sanity checks for user-supplied variables and hostname...
 [ -n "$OUT_DIR" ] || exit 255
