@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260907'
+TOOL_VERSION='20261003'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -985,8 +985,9 @@ rm -f "$OUT_DIR/executables_fake_systemd_limit.txt"
 echo 'Done!'
 
 echo 'Scanning for suspicious command history...'
-find /home/*/ /root/ -xdev -maxdepth 2 -name '*hist*' -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
-find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker -name '*hist*' -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
+# On CentOS 6, this could produce infinite output... Avoid that by excluding the 'hist_interesting.txt' file...
+find /home/*/ /root/ -xdev -maxdepth 2 \( -name '*hist*' -a \! -name 'hist_interesting.txt' \) -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
+find /var/lib/cont* /var/lib/dock* /opt/lib/dock* /var/snap/docker \( -name '*hist*' -a \! -name 'hist_interesting.txt' \) -type f -exec grep -EiaHn -A 15 -B 15 "$HISTORY_REGEX" {} \; 2>/dev/null 1>> "$OUT_DIR/hist_interesting.txt"
 echo 'Done!'
 
 echo 'Dumping last lines of history recorded for root...'
