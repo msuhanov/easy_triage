@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20261003'
+TOOL_VERSION='20261005'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -384,6 +384,18 @@ rm -f "$OUT_DIR/lsblk_ntfs.txt"
 
 systemd-ac-power -v 1>"$OUT_DIR/systemd-ac-power.txt" 2>/dev/null
 systemd-detect-virt 1>"$OUT_DIR/systemd-detect-virt.txt" 2>/dev/null
+
+# Collect VMware-specific information...
+which vmware-checkvm 1>/dev/null 2>/dev/null
+[ $? -eq 0 ] && vmware-checkvm -p 1>"$OUT_DIR/vmware-product.txt"
+which vmware-rpctool 1>/dev/null 2>/dev/null
+[ $? -eq 0 ] && vmware-rpctool 'guestlib.stat.get text session' 1>"$OUT_DIR/vmware-esxi-info.txt"
+which vmware-toolbox-cmd 1>/dev/null 2>/dev/null
+if [ $? -eq 0 ]; then
+  vmware-toolbox-cmd stat hosttime 1>"$OUT_DIR/vmware-hosttime.txt"
+  vmware-toolbox-cmd stat balloon 1>"$OUT_DIR/vmware-balloon.txt"
+  vmware-toolbox-cmd stat swap 1>"$OUT_DIR/vmware-swap.txt"
+fi
 
 cat /proc/kallsyms | gzip -4 1>"$OUT_DIR/kernel_kallsyms.txt.gz"
 
