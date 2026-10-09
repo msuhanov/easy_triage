@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20260117'
+TOOL_VERSION='20261010'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -119,11 +119,11 @@ fi
 rm -f triage_elfs.txt triage_elfs_limit.txt
 
 # These core dumps can be encrypted (which isn't supported here), but many real-world configurations leave them unencrypted.
-# We search for suspicious core dumps only (from 'vmx' and 'hostd' which deal with VM-controlled data, and also from 'sshd', if any)...
-latest_core=$(ls -t /var/core/ | grep -E 'vmx|hostd|sshd' | head -n 1)
+# We search for suspicious core dumps only (from 'vmx', 'vmkernel', and 'hostd' which deal with VM-controlled data, and also from 'sshd', if any)...
+latest_core=$(ls -t /var/core/ | grep -E 'vmx|vmkernel|hostd|sshd' | head -n 1)
 if [ -n "$latest_core" ]; then # If there is a core dump, check its encryption status.
 	latest_core_enc=$(vmkdump_extract -E /var/core/"$latest_core")
-	latest_core_bin=$(vmkdump_extract -e /var/core/"$latest_core" | head -n 1) # Also, extract the binary itself.
+	latest_core_bin=$(vmkdump_extract -e /var/core/"$latest_core" 2>/dev/null | head -n 1) # Also, extract the binary itself.
 	[ "$latest_core_enc" = 'NO' ] || latest_core='' # It is encrypted, bail out.
 	[ -f "$latest_core_bin" ] || latest_core_bin='' # No such a file, skip it.
 
@@ -131,7 +131,9 @@ if [ -n "$latest_core" ]; then # If there is a core dump, check its encryption s
 		mkdir triage_cores
 		cd triage_cores
 		if [ $? -eq 0 ]; then
-			vmkdump_extract -x /var/core/"$latest_core"
+			# Avoid copying huge sparse ranges from extracted core dumps, because the on-board 'tar' doesn't support the sparse handling...
+			# vmkdump_extract -x /var/core/"$latest_core"
+			cp /var/core/"$latest_core" .
 			cd ..
 		fi
 	fi
