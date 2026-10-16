@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20261010'
+TOOL_VERSION='20261016'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -146,20 +146,32 @@ if [ -n "$latest_core" ]; then
 	echo ' (Going to collect those...)'
 fi
 
+# Check if a different directory is configured for current logs...
+auth_log_target=$(readlink /var/log/auth.log)
+if [ -n "$auth_log_target" ]; then
+	log_dir=$(dirname "$auth_log_target")
+        if [ -n "$log_dir" ] && [ -d "$log_dir" ] && [ "$log_dir" != '.' ] && [ "$log_dir" != '/scratch/log' ] && [ "$log_dir" != '/' ]; then
+		# Found something, copy files from this directory, but do not copy subdirectories...
+		mkdir triage_more_logs
+		cp "$log_dir"/* triage_more_logs/
+	fi
+fi
+
 echo 'Compressing text results...'
 gzip triage_results.txt
 echo 'Collecting interesting files...'
 if [ -n "$latest_core" ]; then
 	if [ -n "$latest_core_bin" ]; then
-		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_cores/ "$latest_core_bin"
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_cores/ triage_more_logs/ "$latest_core_bin"
 	else
-		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_cores/
+		tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_cores/ triage_more_logs/
 	fi
 else
-	tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/
+	tar -cvhzf triage_files.tgz /var/log/ /log/ /scratch/log/ /tmp/ /var/tmp/ /dev/shm/ triage_binaries/ triage_more_logs/
 fi
 [ -d triage_cores ] && rm -fr triage_cores/
 [ -d triage_binaries ] && rm -fr triage_binaries/
+[ -d triage_more_logs/ ] && rm -fr triage_more_logs/
 
 echo 'Done!'
 echo 'triage_results.txt.gz'
