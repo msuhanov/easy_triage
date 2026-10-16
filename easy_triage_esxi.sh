@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20261016'
+TOOL_VERSION='20261016_2'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -150,7 +150,7 @@ fi
 auth_log_target=$(readlink /var/log/auth.log)
 if [ -n "$auth_log_target" ]; then
 	log_dir=$(dirname "$auth_log_target")
-        if [ -n "$log_dir" ] && [ -d "$log_dir" ] && [ "$log_dir" != '.' ] && [ "$log_dir" != '/scratch/log' ] && [ "$log_dir" != '/' ]; then
+	if [ -n "$log_dir" ] && [ -d "$log_dir" ] && [ "$log_dir" != '.' ] && [ "$log_dir" != '/scratch/log' ] && [ "$log_dir" != '/' ]; then
 		# Found something, copy files from this directory, but do not copy subdirectories...
 		mkdir triage_more_logs
 		cp "$log_dir"/* triage_more_logs/
@@ -171,7 +171,7 @@ else
 fi
 [ -d triage_cores ] && rm -fr triage_cores/
 [ -d triage_binaries ] && rm -fr triage_binaries/
-[ -d triage_more_logs/ ] && rm -fr triage_more_logs/
+[ -d triage_more_logs ] && rm -fr triage_more_logs/
 
 echo 'Done!'
 echo 'triage_results.txt.gz'
