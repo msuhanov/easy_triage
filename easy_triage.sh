@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20261007'
+TOOL_VERSION='20261023'
 
 if [ -z "$EUID" ]; then # Anything other than Bash is not supported!
   echo 'Not running under Bash :-('
@@ -551,7 +551,7 @@ if [ $? -eq 0 ]; then
     cn="$REPLY"
     [ -z "$cn" ] && continue
     echo "  $cn"
-    docker container logs --timestamps "$cn" | gzip -8 1> "$OUT_DIR/logs_docker/$cn.txt.gz"
+    docker container logs --timestamps "$cn" 2>"$OUT_DIR"/logs_docker/"$cn"_err.txt | gzip -8 1> "$OUT_DIR/logs_docker/$cn.txt.gz"
     docker container inspect "$cn" 1> "$OUT_DIR/logs_docker/$cn.insp"
   done <"$OUT_DIR/docker_containers.txt"
 fi
@@ -1090,10 +1090,11 @@ echo 'Done!'
 # Paths that were examined before (e.g., /var/log/vmware/) are excluded too...
 # Finally, each candidate file has its data checked using common strings (e.g., 'GET /', 'POST /').
 # Then, its containing directory is archived, if requested (see the 'httplogs' option).
+# TODO: the current code skips log files that are inside a different root (e.g., in a container).
 
 echo 'Searching for web/proxy server access & error logs...'
 find /proc/ -mindepth 2 -maxdepth 3 \( ! -name 'fd' -prune \) -path '*/fd/*' -type l -printf '%l\n' 2>/dev/null | grep -Eva '^/memfd:' | grep -Fva '(deleted)' | grep -Eva '^-' | grep -Ea '(access.{0,2}log|proxy.*log)' | grep -Eva '^(/var/log/(vmware.*|audit.*|journal)/|/run/log/journal/|/run/journal/)' | sort | uniq 1>> "$OUT_DIR/websrv_logs_found_by_filename.txt"
-cat "$OUT_DIR/websrv_logs_found_by_filename.txt" | xargs -I '{}' grep -El '(GET|POST|PUT|HEAD) /' '{}' 1>> "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt"
+cat "$OUT_DIR/websrv_logs_found_by_filename.txt" | xargs -I '{}' grep -El '((GET|POST|PUT|HEAD) /)|Mozilla/5|python-requests/' '{}' 1>> "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt"
 cat "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt" | xargs -I '{}' dirname '{}' | sort | uniq 1>> "$OUT_DIR/websrv_logs_found.txt"
 rm -f "$OUT_DIR/websrv_logs_found_by_filename.txt" "$OUT_DIR/websrv_logs_found_by_filename_and_content.txt"
 logs_found=$(cat "$OUT_DIR/websrv_logs_found.txt" | tr '\n' ' ')
@@ -1335,7 +1336,7 @@ if [ "$do_orphan" = 'orphan' ]; then
         [ -e "$OUT_DIR/binaries_orphan/$out_base.txt" ] && out_base=$(printf '%s_another\n' "$out_base")
 
         stat -L "$exe_symlink" 1>"$OUT_DIR/binaries_orphan/$out_base.txt"
-        dd if="$exe_symlink" bs=1M count=32 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null # In the memory dumper, the limit is lower.
+        dd if="$exe_symlink" bs=1M count=48 of="$OUT_DIR/binaries_orphan/$out_base.fs_bin" 2>/dev/null # In the memory dumper, the limit is lower.
         echo " copied as file: $exe_symlink"
 
         cat "$maps_file" 1> "$OUT_DIR/binaries_orphan/$out_base.mem_map"
@@ -1474,7 +1475,7 @@ if [ -n "$best_python" -a "$do_rootkit" = 'rootkit' ]; then
 
     fn_out=$(printf '%s\n' "$fn" | sed -e 's/\//_/g' -e 's/[[:space:]]/_/g')
     stat "$fn" 1> "$OUT_DIR/binaries_rootkit/$fn_out.txt"
-    dd if="$fn" bs=1M count=24 of="$OUT_DIR/binaries_rootkit/$fn_out.fs_bin_by_path" 2>/dev/null
+    dd if="$fn" bs=1M count=48 of="$OUT_DIR/binaries_rootkit/$fn_out.fs_bin_by_path" 2>/dev/null
   done <"$OUT_DIR/scan_pids_exes.txt"
 
   # Dump from '/proc/<pid>/exe'.
@@ -1482,7 +1483,7 @@ if [ -n "$best_python" -a "$do_rootkit" = 'rootkit' ]; then
     pid="$REPLY"
     [ -z "$pid" ] && continue
 
-    dd if=/proc/"$pid"/exe bs=1M count=24 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_pid" 2>/dev/null
+    dd if=/proc/"$pid"/exe bs=1M count=48 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_pid" 2>/dev/null
   done <"$OUT_DIR/scan_pids_pids.txt"
 fi
 
@@ -1594,7 +1595,7 @@ if [ "$do_omproc" = 'omproc' ]; then
       echo '---' 1>>"$OUT_DIR/overmounted_pids/$pid.txt"
 
       mkdir "$OUT_DIR/binaries_rootkit" 2>/dev/null
-      dd if="$OUT_DIR/new_proc/$pid"/exe bs=1M count=24 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_ompid" 2>/dev/null
+      dd if="$OUT_DIR/new_proc/$pid"/exe bs=1M count=48 of="$OUT_DIR/binaries_rootkit/$pid.fs_bin_by_ompid" 2>/dev/null
     done <"$OUT_DIR/overmounted_pids.txt"
 
     sleep 3
@@ -1767,9 +1768,9 @@ if [ "$do_swap" = 'swap' ]; then
 
   if [ -n "$swap_dev" -a -r "$swap_dev" ]; then
     printf '%s\n' " $swap_dev"
-    # This will never read more than 16 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
+    # This will never read more than 32 GiB of swap space (and from no more than one device/file, excluding compressed RAM), never produce more than 800 lines.
     # Use direct I/O to reduce the cache usage. If that mode is unavailable, bail out!
-    dd if="$swap_dev" bs=2048 iflag=direct count=8388608 2>/dev/null | $best_strings -n 10 | grep -E -A 5 -B 5 '(Accepted )|(session\..* addr\.remote:)|(session.* teleportUser:)' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
+    dd if="$swap_dev" bs=4096 iflag=direct count=8388608 2>/dev/null | $best_strings -n 10 | grep -E -A 5 -B 5 '(Accepted )|(session\..* addr\.remote:)|(session.* teleportUser:)' | head -n 800 | gzip -7 1>> "$OUT_DIR/swap_carved.txt.gz"
   fi
   echo 'Done!'
 fi

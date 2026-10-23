@@ -3,7 +3,7 @@
 # By Maxim Suhanov, CICADA8
 # License: GPLv3 (see 'License.txt')
 
-TOOL_VERSION='20261016_2'
+TOOL_VERSION='20261023'
 
 echo 'Running easy_triage_esxi...'
 echo "  version: $TOOL_VERSION"
@@ -22,6 +22,8 @@ echo '===== SNMP:' >> triage_results.txt
 esxcli system snmp get >> triage_results.txt
 echo '===== ACCOUNT LIST:' >> triage_results.txt
 esxcli system account list >> triage_results.txt
+echo '---' >> triage_results.txt
+cat /etc/passwd >> triage_results.txt
 echo '===== LOGGED ON USERS:' >> triage_results.txt
 w >> triage_results.txt
 echo '---' >> triage_results.txt
